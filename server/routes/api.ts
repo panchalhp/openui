@@ -221,6 +221,7 @@ apiRoutes.post("/sessions", async (c) => {
     initialPrompt,
     categoryId,
     isInvestigation,
+    investigationUrl,
   } = body;
 
   const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -251,6 +252,7 @@ apiRoutes.post("/sessions", async (c) => {
     initialPrompt,
     categoryId,
     isInvestigation,
+    investigationUrl,
   });
 
   saveState(sessions);

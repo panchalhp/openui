@@ -48,6 +48,7 @@ export interface Session {
   dueDate?: string;
   // Investigation flag for plugin selection
   isInvestigation?: boolean;
+  investigationUrl?: string;
 }
 
 export interface WorktreeRepo {
@@ -86,6 +87,7 @@ export interface PersistedNode {
   sortOrder?: number;
   dueDate?: string;
   isInvestigation?: boolean; // Investigation flag for plugin selection
+  investigationUrl?: string;
 }
 
 export interface PersistedCategory {

@@ -1291,6 +1291,7 @@ export function createSession(params: {
   initialPrompt?: string;
   categoryId?: string;
   isInvestigation?: boolean;
+  investigationUrl?: string;
 }): { session: Session; cwd: string; gitBranch?: string } {
   const {
     sessionId,
@@ -1310,6 +1311,7 @@ export function createSession(params: {
     initialPrompt,
     categoryId,
     isInvestigation,
+    investigationUrl,
   } = params;
 
   let workingDir = originalCwd;
@@ -1364,6 +1366,7 @@ export function createSession(params: {
       initialPrompt,
       categoryId,
       isInvestigation,
+      investigationUrl,
     };
 
     sessions.set(sessionId, session);
@@ -1463,6 +1466,7 @@ export function createSession(params: {
     initialPrompt,
     categoryId,
     isInvestigation,
+    investigationUrl,
   };
 
   sessions.set(sessionId, session);

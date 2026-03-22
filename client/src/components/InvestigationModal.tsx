@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, AlertTriangle, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { X, AlertTriangle, Loader2, ChevronDown } from "lucide-react";
 import { useStore } from "../stores/useStore";
 
 interface WorktreeRepo {
@@ -45,17 +45,14 @@ function generateBranchName(url: string, type: UrlType): string {
   return `investigation/${prefix}-${id}`;
 }
 
-const DEFAULT_PLUGIN_DIR = "experimental/teams/eng-ai-ops/claude-plugin";
-
 export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
   const { addSession, addNode, nodes } = useStore();
   const [repos, setRepos] = useState<WorktreeRepo[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<WorktreeRepo | null>(null);
+  const [customName, setCustomName] = useState("");
   const [url, setUrl] = useState("");
-  const [createWorktree, setCreateWorktree] = useState(true);
+  const [createWorktree, setCreateWorktree] = useState(false);
   const [branchName, setBranchName] = useState("");
-  const [pluginDir, setPluginDir] = useState(DEFAULT_PLUGIN_DIR);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,11 +80,10 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
         .finally(() => setIsLoading(false));
     } else {
       // Reset form
+      setCustomName("");
       setUrl("");
       setBranchName("");
-      setCreateWorktree(true);
-      setPluginDir(DEFAULT_PLUGIN_DIR);
-      setShowAdvanced(false);
+      setCreateWorktree(false);
       setError(null);
     }
   }, [open]);
@@ -96,14 +92,12 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
   useEffect(() => {
     if (!url.trim()) return;
     const type = detectUrlType(url);
-    // PD/JIRA default worktree ON, Slack OFF
-    setCreateWorktree(type !== "slack");
     // Auto-generate branch name
     setBranchName(generateBranchName(url, type));
   }, [url]);
 
   const handleCreate = async () => {
-    if (!selectedRepo || !url.trim()) return;
+    if (!selectedRepo) return;
 
     setIsCreating(true);
     setError(null);
@@ -112,33 +106,11 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
       const nodeId = `node-${Date.now()}`;
       const type = detectUrlType(url);
 
-      // Build the command — custom plugin dir only for Universe repo
-      const isUniverse = /universe/i.test(selectedRepo.name) || /universe/i.test(selectedRepo.path);
-      let command: string;
-      if (isUniverse && createWorktree && branchName.trim()) {
-        const repoName = selectedRepo.path.replace(/\/$/, "").split("/").pop() || "repo";
-        const parentDir = selectedRepo.path.replace(/\/$/, "").replace(/\/[^/]+$/, "");
-        const dirName = branchName.trim().replace(/\//g, "-");
-        const pluginPath = `${parentDir}/${repoName}-worktrees/${dirName}/${pluginDir}`;
-        command = `isaac --plugin-dir ${pluginPath}`;
-      } else if (isUniverse) {
-        command = `isaac --plugin-dir ${selectedRepo.path}/${pluginDir}`;
-      } else {
-        command = "isaac"; // server will inject default openui plugin
-      }
+      // Build the command — server will inject investigation plugins from settings
+      const command = "isaac";
 
-      // Build initial prompt — delivered via server's initialPrompt mechanism (written to PTY after isaac starts)
-      let initialPrompt: string;
-      if (type === "slack") {
-        initialPrompt = `Please help investigate this question off of slack: ${url.trim()}`;
-      } else {
-        initialPrompt = `/ai-ops-investigate ${url.trim()}`;
-      }
-
-      // Display name from URL
-      const displayName = url.trim().length > 60
-        ? url.trim().slice(0, 57) + "..."
-        : url.trim();
+      // Use custom name if provided, otherwise default to "Investigation"
+      const displayName = customName.trim() || "Investigation";
 
       const body: Record<string, unknown> = {
         agentId: "claude",
@@ -147,11 +119,10 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
         cwd: selectedRepo.path,
         nodeId,
         customName: displayName,
-        customColor: "#06B6D4",
-        initialPrompt,
         categoryId: "oncall-todo",
         remote: selectedRepo.remote,
         isInvestigation: true,
+        investigationUrl: url.trim() || undefined,
       };
 
       if (createWorktree && branchName.trim()) {
@@ -188,7 +159,6 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
         agentId: "claude",
         agentName: "Claude Code",
         customName: displayName,
-        customColor: "#06B6D4",
         command,
         color: "#06B6D4",
         createdAt: new Date().toISOString(),
@@ -199,6 +169,7 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
         creationProgress: createWorktree ? "Initializing..." : undefined,
         remote: selectedRepo.remote,
         categoryId: "oncall-todo",
+        investigationUrl: url.trim() || undefined,
       });
 
       onClose();
@@ -284,10 +255,25 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
                         )}
                       </div>
 
+                      {/* Name input */}
+                      <div>
+                        <label className="text-xs text-zinc-500 block mb-1.5">
+                          Name (optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={customName}
+                          onChange={(e) => setCustomName(e.target.value)}
+                          placeholder="Investigation"
+                          className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
+                          autoFocus
+                        />
+                      </div>
+
                       {/* URL input */}
                       <div>
                         <label className="text-xs text-zinc-500 block mb-1.5">
-                          Investigation URL
+                          Investigation URL (optional)
                         </label>
                         <input
                           type="text"
@@ -295,9 +281,8 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
                           onChange={(e) => setUrl(e.target.value)}
                           placeholder="PagerDuty, JIRA, or Slack URL"
                           className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                          autoFocus
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && url.trim() && selectedRepo) {
+                            if (e.key === "Enter" && selectedRepo) {
                               handleCreate();
                             }
                           }}
@@ -366,32 +351,6 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
                         </div>
                       )}
 
-                      {/* Advanced options */}
-                      <div>
-                        <button
-                          onClick={() => setShowAdvanced(!showAdvanced)}
-                          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                        >
-                          {showAdvanced ? (
-                            <ChevronDown className="w-3 h-3" />
-                          ) : (
-                            <ChevronRight className="w-3 h-3" />
-                          )}
-                          Advanced
-                        </button>
-                        {showAdvanced && (
-                          <div className="mt-2">
-                            <label className="text-xs text-zinc-500 block mb-1.5">Plugin directory</label>
-                            <input
-                              type="text"
-                              value={pluginDir}
-                              onChange={(e) => setPluginDir(e.target.value)}
-                              className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-xs font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                            />
-                          </div>
-                        )}
-                      </div>
-
                       {error && (
                         <div className="px-3 py-2 rounded-md bg-red-500/10 border border-red-500/20 text-sm text-red-400">
                           {error}
@@ -411,7 +370,7 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
                   </button>
                   <button
                     onClick={handleCreate}
-                    disabled={isCreating || !url.trim() || !selectedRepo || repos.length === 0}
+                    disabled={isCreating || !selectedRepo || repos.length === 0}
                     className="px-4 py-1.5 rounded-md text-sm font-medium bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                   >
                     {isCreating ? (

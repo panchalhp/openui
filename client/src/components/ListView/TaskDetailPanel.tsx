@@ -33,7 +33,7 @@ interface TaskDetailPanelProps {
 }
 
 export function TaskDetailPanel({ nodeId, onClose }: TaskDetailPanelProps) {
-  const { sessions, updateSession, setNewSessionModalOpen, setNewSessionForNodeId } = useStore();
+  const { sessions, updateSession, setNewSessionModalOpen, setNewSessionForNodeId, listSections } = useStore();
   const session = nodeId ? sessions.get(nodeId) : null;
 
   const [terminalKey, setTerminalKey] = useState(0);
@@ -59,7 +59,12 @@ export function TaskDetailPanel({ nodeId, onClose }: TaskDetailPanelProps) {
     );
   }
 
-  const displayColor = session.customColor || session.color || "#888";
+  // Use section color if session is in a category and has no custom color
+  // Uncategorized sessions default to gray
+  const sectionColor = session.categoryId
+    ? listSections.find(s => s.id === session.categoryId)?.color
+    : "#6B7280"; // Gray for uncategorized
+  const displayColor = session.customColor || sectionColor || "#6B7280";
   const statusInfo = statusConfig[session.status || "idle"];
   const isDisconnected = session.status === "disconnected" || session.status === "error" || session.isRestored;
 
@@ -81,9 +86,22 @@ export function TaskDetailPanel({ nodeId, onClose }: TaskDetailPanelProps) {
       <div className="flex-shrink-0 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2.5">
           <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: displayColor }} />
-          <h2 className="text-sm font-medium text-white truncate flex-1">
-            {session.customName || session.agentName}
-          </h2>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-medium text-white truncate">
+              {session.customName || session.agentName}
+            </h2>
+            {session.investigationUrl && (
+              <a
+                href={session.investigationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate block"
+                title={session.investigationUrl}
+              >
+                {session.investigationUrl}
+              </a>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusInfo.color }} />
             <span className="text-[10px] text-zinc-500">{statusInfo.label}</span>
