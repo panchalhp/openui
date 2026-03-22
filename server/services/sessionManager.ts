@@ -728,70 +728,28 @@ export function createWorktree(params: {
     return { success: true, worktreePath };
   }
 
-  // Check if upstream remote exists (common in fork workflows)
-  const hasUpstream = spawnSync(["git", "remote", "get-url", "upstream"], {
-    cwd: gitRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  }).exitCode === 0;
-
-  // Fetch from upstream (preferred) and origin
-  log(`\x1b[38;5;141m[worktree]\x1b[0m Fetching from remote...`);
-  if (hasUpstream) {
-    log(`\x1b[38;5;141m[worktree]\x1b[0m Fetching from upstream...`);
-    spawnSync(["git", "fetch", "upstream"], { cwd: gitRoot, stdout: "pipe", stderr: "pipe" });
-  }
-  spawnSync(["git", "fetch", "origin"], { cwd: gitRoot, stdout: "pipe", stderr: "pipe" });
-
-  // Determine the best remote for the base branch (prefer upstream if available)
-  const baseRemote = hasUpstream ? "upstream" : "origin";
-
-  // Check if branch exists locally or remotely
+  // Check if branch exists locally only (no remote checks)
   const localBranch = spawnSync(["git", "rev-parse", "--verify", branchName], {
     cwd: gitRoot,
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  const remoteBranchOrigin = spawnSync(["git", "rev-parse", "--verify", `origin/${branchName}`], {
-    cwd: gitRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const remoteBranchUpstream = hasUpstream ? spawnSync(["git", "rev-parse", "--verify", `upstream/${branchName}`], {
-    cwd: gitRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  }) : null;
-
   const noCheckoutArgs = sparseCheckout ? ["--no-checkout"] : [];
 
   let result;
   if (localBranch.exitCode === 0) {
-    log(`\x1b[38;5;141m[worktree]\x1b[0m Creating worktree for existing branch: ${branchName}`);
+    // Branch exists locally - use it
+    log(`\x1b[38;5;141m[worktree]\x1b[0m Using existing local branch: ${branchName}`);
     result = spawnSync(["git", "worktree", "add", ...noCheckoutArgs, worktreePath, branchName], {
       cwd: gitRoot,
       stdout: "pipe",
       stderr: "pipe",
     });
-  } else if (remoteBranchUpstream?.exitCode === 0) {
-    log(`\x1b[38;5;141m[worktree]\x1b[0m Creating worktree tracking upstream branch: ${branchName}`);
-    result = spawnSync(["git", "worktree", "add", ...noCheckoutArgs, "--track", "-b", branchName, worktreePath, `upstream/${branchName}`], {
-      cwd: gitRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } else if (remoteBranchOrigin.exitCode === 0) {
-    log(`\x1b[38;5;141m[worktree]\x1b[0m Creating worktree tracking origin branch: ${branchName}`);
-    result = spawnSync(["git", "worktree", "add", ...noCheckoutArgs, "--track", "-b", branchName, worktreePath, `origin/${branchName}`], {
-      cwd: gitRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
   } else {
-    log(`\x1b[38;5;141m[worktree]\x1b[0m Creating new worktree with branch: ${branchName} from ${baseRemote}/${baseBranch}`);
-    result = spawnSync(["git", "worktree", "add", ...noCheckoutArgs, "-b", branchName, worktreePath, `${baseRemote}/${baseBranch}`], {
+    // Branch doesn't exist - create from local baseBranch (master/main)
+    log(`\x1b[38;5;141m[worktree]\x1b[0m Creating new branch from local ${baseBranch}: ${branchName}`);
+    result = spawnSync(["git", "worktree", "add", ...noCheckoutArgs, "-b", branchName, worktreePath, baseBranch], {
       cwd: gitRoot,
       stdout: "pipe",
       stderr: "pipe",
@@ -909,26 +867,20 @@ export function createRemoteWorktree(params: {
   // Ensure worktrees directory exists
   sshExec(remote, `mkdir -p ${worktreesDir}`);
 
-  // Fetch from origin
-  log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Fetching from origin on ${remote}...`);
-  sshExec(remote, `cd ${repoPath} && git fetch origin`);
-
-  // Check if branch exists
+  // Check if branch exists locally only
   const localBranch = sshExec(remote, `cd ${repoPath} && git rev-parse --verify ${branchName} 2>/dev/null`);
-  const remoteBranch = sshExec(remote, `cd ${repoPath} && git rev-parse --verify origin/${branchName} 2>/dev/null`);
 
   const noCheckoutFlag = sparseCheckout ? " --no-checkout" : "";
 
   let result;
   if (localBranch.exitCode === 0) {
-    log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Creating worktree for existing branch: ${branchName}`);
+    // Branch exists locally - use it
+    log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Using existing local branch: ${branchName}`);
     result = sshExec(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} ${worktreePath} ${branchName}`);
-  } else if (remoteBranch.exitCode === 0) {
-    log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Creating worktree tracking origin branch: ${branchName}`);
-    result = sshExec(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} --track -b ${branchName} ${worktreePath} origin/${branchName}`);
   } else {
-    log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Creating new worktree: ${branchName} from origin/${baseBranch}`);
-    result = sshExec(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} -b ${branchName} ${worktreePath} origin/${baseBranch}`);
+    // Branch doesn't exist - create from local baseBranch (master/main)
+    log(`\x1b[38;5;141m[worktree-remote]\x1b[0m Creating new branch from local ${baseBranch}: ${branchName}`);
+    result = sshExec(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} -b ${branchName} ${worktreePath} ${baseBranch}`);
   }
 
   if (result.exitCode !== 0) {
@@ -1058,7 +1010,7 @@ async function createWorktreeAndStartAgent(params: {
   setupPtyHandlers(session, sessionId, ptyProcess);
 
   // Run the agent command
-  let finalCommand = remote ? injectRemotePluginDir(command, agentId, isInvestigation) : injectPluginDir(command, agentId, isInvestigation);
+  let finalCommand = remote ? injectRemotePluginDir(command, agentId, session.isInvestigation) : injectPluginDir(command, agentId, session.isInvestigation);
   finalCommand = injectSkipPermissions(finalCommand, agentId);
   log(`\x1b[38;5;82m[pty-write]\x1b[0m Writing command: ${finalCommand}`);
 
@@ -1125,26 +1077,21 @@ async function createRemoteWorktreeSteps(params: {
   onProgress("Creating worktree directory...");
   await sshExecAsync(remote, `mkdir -p ${worktreesDir}`);
 
-  onProgress("Fetching from origin...");
-  const fetchResult = await sshExecAsync(remote, `cd ${repoPath} && git fetch origin`);
-  if (fetchResult.exitCode !== 0) {
-    logError(`\x1b[38;5;196m[worktree-remote-async]\x1b[0m Fetch failed: ${fetchResult.stderr}`);
-  }
-
   onProgress("Checking branch...");
   const localBranch = await sshExecAsync(remote, `cd ${repoPath} && git rev-parse --verify ${branchName} 2>/dev/null`);
-  const remoteBranch = await sshExecAsync(remote, `cd ${repoPath} && git rev-parse --verify origin/${branchName} 2>/dev/null`);
 
   const noCheckoutFlag = sparseCheckout ? " --no-checkout" : "";
 
   onProgress("Creating worktree...");
   let result;
   if (localBranch.exitCode === 0) {
+    // Branch exists locally - use it
+    log(`\x1b[38;5;141m[worktree-remote-async]\x1b[0m Using existing local branch: ${branchName}`);
     result = await sshExecAsync(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} ${worktreePath} ${branchName}`);
-  } else if (remoteBranch.exitCode === 0) {
-    result = await sshExecAsync(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} --track -b ${branchName} ${worktreePath} origin/${branchName}`);
   } else {
-    result = await sshExecAsync(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} -b ${branchName} ${worktreePath} origin/${baseBranch}`);
+    // Branch doesn't exist - create from local baseBranch (master/main)
+    log(`\x1b[38;5;141m[worktree-remote-async]\x1b[0m Creating new branch from local ${baseBranch}: ${branchName}`);
+    result = await sshExecAsync(remote, `cd ${repoPath} && git worktree add${noCheckoutFlag} -b ${branchName} ${worktreePath} ${baseBranch}`);
   }
 
   if (result.exitCode !== 0) {
@@ -1196,34 +1143,21 @@ async function createLocalWorktreeSteps(params: {
     mkdirSync(worktreesDir, { recursive: true });
   }
 
-  onProgress("Fetching from remote...");
-  const hasUpstream = (await execAsync(["git", "remote", "get-url", "upstream"], gitRoot)).exitCode === 0;
-  if (hasUpstream) {
-    await execAsync(["git", "fetch", "upstream"], gitRoot);
-  }
-  await execAsync(["git", "fetch", "origin"], gitRoot);
-
-  const baseRemote = hasUpstream ? "upstream" : "origin";
-
   onProgress("Checking branch...");
   const localBranch = await execAsync(["git", "rev-parse", "--verify", branchName], gitRoot);
-  const remoteBranchOrigin = await execAsync(["git", "rev-parse", "--verify", `origin/${branchName}`], gitRoot);
-  const remoteBranchUpstream = hasUpstream
-    ? await execAsync(["git", "rev-parse", "--verify", `upstream/${branchName}`], gitRoot)
-    : null;
 
   const noCheckoutArgs = sparseCheckout ? ["--no-checkout"] : [];
 
   onProgress("Creating worktree...");
   let result;
   if (localBranch.exitCode === 0) {
+    // Branch exists locally - use it
+    log(`\x1b[38;5;141m[worktree-async]\x1b[0m Using existing local branch: ${branchName}`);
     result = await execAsync(["git", "worktree", "add", ...noCheckoutArgs, worktreePath, branchName], gitRoot);
-  } else if (remoteBranchUpstream?.exitCode === 0) {
-    result = await execAsync(["git", "worktree", "add", ...noCheckoutArgs, "--track", "-b", branchName, worktreePath, `upstream/${branchName}`], gitRoot);
-  } else if (remoteBranchOrigin.exitCode === 0) {
-    result = await execAsync(["git", "worktree", "add", ...noCheckoutArgs, "--track", "-b", branchName, worktreePath, `origin/${branchName}`], gitRoot);
   } else {
-    result = await execAsync(["git", "worktree", "add", ...noCheckoutArgs, "-b", branchName, worktreePath, `${baseRemote}/${baseBranch}`], gitRoot);
+    // Branch doesn't exist - create from local baseBranch (master/main)
+    log(`\x1b[38;5;141m[worktree-async]\x1b[0m Creating new branch from local ${baseBranch}: ${branchName}`);
+    result = await execAsync(["git", "worktree", "add", ...noCheckoutArgs, "-b", branchName, worktreePath, baseBranch], gitRoot);
   }
 
   if (result.exitCode !== 0) {
