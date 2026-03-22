@@ -35,8 +35,8 @@ export function Terminal({ sessionId, color, nodeId }: TerminalProps) {
     const term = new XTerm({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontSize: 12,
-      fontFamily: '"JetBrains Mono", "Fira Code", "SF Mono", Menlo, monospace',
+      fontSize: 13,
+      fontFamily: '"Monaco", monospace',
       fontWeight: "400",
       lineHeight: 1.4,
       letterSpacing: 0,
