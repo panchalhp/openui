@@ -211,13 +211,13 @@ export function TaskList({ selectedNodeId, onSelect }: TaskListProps) {
   return (
     <div className="h-full flex flex-col bg-canvas-dark">
       <div className="flex-1 overflow-y-auto p-3 space-y-1">
-        {/* Sprint group */}
+        {/* Tasks group */}
         {sprintSections.length > 0 && (
           <>
             <div className="flex items-center gap-2 px-2 pt-1 pb-2">
               <div className="h-px flex-1 bg-gradient-to-r from-orange-500/40 to-transparent" />
               <span className="text-[10px] font-semibold text-orange-400/70 uppercase tracking-widest">
-                Sprint
+                Tasks
               </span>
               <div className="h-px flex-1 bg-gradient-to-l from-orange-500/40 to-transparent" />
             </div>
@@ -310,7 +310,7 @@ export function TaskList({ selectedNodeId, onSelect }: TaskListProps) {
                     : "text-zinc-500 hover:text-zinc-300 border border-transparent"
                 }`}
               >
-                Sprint
+                Tasks
               </button>
               <button
                 onClick={() => setNewGroup("oncall")}
