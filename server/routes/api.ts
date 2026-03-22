@@ -5,6 +5,7 @@ import { loadState, saveState, savePositions, getDataDir } from "../services/per
 import {
   loadWorktreeConfig,
   saveWorktreeConfig,
+  savePluginDirectories,
   loadSettings,
   saveSettings,
 } from "../services/worktreeConfig";
@@ -222,7 +223,14 @@ apiRoutes.post("/sessions", async (c) => {
   } = body;
 
   const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const workingDir = cwd || LAUNCH_CWD;
+
+  // Expand tilde and resolve path for local sessions (remote sessions handle ~ natively)
+  let workingDir = cwd || LAUNCH_CWD;
+  if (!remote && workingDir.startsWith("~")) {
+    const { homedir } = await import("os");
+    const { resolve } = await import("path");
+    workingDir = resolve(workingDir.replace("~", homedir()));
+  }
 
   const result = createSession({
     sessionId,
@@ -478,6 +486,19 @@ apiRoutes.post("/worktree/config", async (c) => {
   }
 
   saveWorktreeConfig(worktreeRepos);
+  return c.json({ success: true });
+});
+
+// Save plugin directories config
+apiRoutes.post("/plugin-directories", async (c) => {
+  const body = await c.req.json();
+  const { pluginDirectories } = body;
+
+  if (!Array.isArray(pluginDirectories)) {
+    return c.json({ error: "pluginDirectories must be an array" }, 400);
+  }
+
+  savePluginDirectories(pluginDirectories);
   return c.json({ success: true });
 });
 

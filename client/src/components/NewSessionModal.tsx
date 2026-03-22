@@ -13,22 +13,11 @@ import {
   AlertCircle,
   Home,
   ArrowUp,
-  Github,
   Clock,
 } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import { useStore, Agent, AgentSession } from "../stores/useStore";
 
-
-interface GitHubIssue {
-  id: number;
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  labels: { name: string; color: string }[];
-  assignee?: { login: string };
-}
 
 interface NewSessionModalProps {
   open: boolean;
@@ -37,8 +26,6 @@ interface NewSessionModalProps {
   existingSession?: AgentSession;
   existingNodeId?: string;
 }
-
-type TabType = "blank" | "github";
 
 // Node dimensions for collision detection
 const NODE_WIDTH = 200;
@@ -139,14 +126,12 @@ export function NewSessionModal({
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [cwd, setCwd] = useState("");
   const [customName, setCustomName] = useState("");
+  const [selectedModel, setSelectedModel] = useState<string>("sonnet");
   const [commandArgs, setCommandArgs] = useState("");
   const [count, setCount] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<TabType>("blank");
-
-  // Branch/worktree state for GitHub issues
+  // Branch/worktree state
   const [branchName, setBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("main");
   const [createWorktree, setCreateWorktree] = useState(true);
@@ -162,13 +147,6 @@ export function NewSessionModal({
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
 
-  // GitHub state
-  const [githubRepoUrl, setGithubRepoUrl] = useState("");
-  const [githubIssues, setGithubIssues] = useState<GitHubIssue[]>([]);
-  const [githubLoading, setGithubLoading] = useState(false);
-  const [githubError, setGithubError] = useState<string | null>(null);
-  const [selectedGithubIssue, setSelectedGithubIssue] = useState<GitHubIssue | null>(null);
-
   // Remote host state (kept for infrastructure compatibility, but UI hidden)
   const [remote, setRemote] = useState<string>("");
 
@@ -181,12 +159,11 @@ export function NewSessionModal({
   // Update cwd, recent dirs, and close dir picker when remote changes
   useEffect(() => {
     setShowDirPicker(false);
-    setCwd(remote ? DEFAULT_REMOTE_CWD : DEFAULT_CWD);
+    setCwd("~/universe");
     setRecentDirs(loadRecentDirs(remote || undefined));
   }, [remote]);
 
-  const DEFAULT_CWD = "~/openui";
-  const DEFAULT_REMOTE_CWD = "~";
+  const DEFAULT_CWD = "~/universe";
   const MAX_RECENT_DIRS = 5;
 
   const recentDirsKey = (host?: string) =>
@@ -229,27 +206,12 @@ export function NewSessionModal({
       }
       setRemote("");
       setRecentDirs(loadRecentDirs());
-      setActiveTab("blank");
-      setSelectedGithubIssue(null);
-      setGithubIssues([]);
-      setGithubError(null);
+      setSelectedModel("sonnet");
       setInitialized(true);
     } else if (!open) {
       setInitialized(false);
     }
   }, [open, initialized, existingSession, agents]);
-
-  // Generate branch name from GitHub issue
-  useEffect(() => {
-    if (selectedGithubIssue) {
-      const slug = selectedGithubIssue.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 40);
-      setBranchName(`issue-${selectedGithubIssue.number}/${slug}`);
-    }
-  }, [selectedGithubIssue]);
 
   // Directory browsing
   const browsePath = async (path?: string) => {
@@ -314,31 +276,6 @@ export function NewSessionModal({
     setShowDirPicker(false);
   };
 
-  // GitHub functions
-  const loadGithubIssues = async (repoUrl: string) => {
-    if (!repoUrl.trim()) return;
-    setGithubLoading(true);
-    setGithubError(null);
-    try {
-      const res = await fetch(`/api/github/issues?repoUrl=${encodeURIComponent(repoUrl)}`);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to load issues");
-      }
-      const data = await res.json();
-      setGithubIssues(data);
-    } catch (e: any) {
-      setGithubError(e.message);
-    } finally {
-      setGithubLoading(false);
-    }
-  };
-
-  const handleGithubRepoSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    loadGithubIssues(githubRepoUrl);
-  };
-
   const handleClose = () => {
     onClose();
   };
@@ -351,9 +288,19 @@ export function NewSessionModal({
     try {
       const workingDir = cwd || (isReplacing ? existingSession?.cwd : null) || launchCwd;
       saveRecentDir(workingDir, remote || undefined);
+
+      // Build model flags
+      let modelFlags = "";
+      if (selectedModel === "opus") {
+        modelFlags = "--model opus";
+      } else if (selectedModel === "sonnet") {
+        modelFlags = "--model sonnet";
+      }
+
+      // Combine command with model flags and arguments
       const fullCommand = selectedAgent.command
-        ? (commandArgs ? `${selectedAgent.command} ${commandArgs}` : selectedAgent.command)
-        : commandArgs;
+        ? `${selectedAgent.command} ${modelFlags}${commandArgs ? ` ${commandArgs}` : ""}`
+        : `${modelFlags}${commandArgs ? ` ${commandArgs}` : ""}`;
 
       // If replacing existing session, delete it first
       if (isReplacing && existingSession && existingNodeId) {
@@ -372,11 +319,6 @@ export function NewSessionModal({
             customName: customName || existingSession.customName,
             customColor: existingSession.customColor,
             ...(remote && { remote }),
-            ...(selectedGithubIssue && {
-              branchName,
-              baseBranch,
-              createWorktree,
-            }),
           }),
         });
 
@@ -426,11 +368,6 @@ export function NewSessionModal({
               nodeId,
               customName: count > 1 ? agentName : customName || undefined,
               ...(remote && { remote }),
-              ...(i === 0 && selectedGithubIssue && {
-                branchName,
-                baseBranch,
-                createWorktree,
-              }),
             }),
           });
 
@@ -460,7 +397,7 @@ export function NewSessionModal({
             color: selectedAgent.color,
             createdAt: new Date().toISOString(),
             cwd: newCwd || workingDir,
-            gitBranch: gitBranch || branchName || undefined,
+            gitBranch: gitBranch || undefined,
             status: "idle",
             customName: count > 1 ? agentName : customName || undefined,
             remote: remote || undefined,
@@ -509,173 +446,8 @@ export function NewSessionModal({
                   </button>
                 </div>
 
-                {/* Tabs */}
-                <div className="px-5 pt-4 flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => {
-                      setActiveTab("blank");
-                      setSelectedGithubIssue(null);
-                    }}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      activeTab === "blank"
-                        ? "bg-white text-canvas"
-                        : "text-zinc-400 hover:text-white hover:bg-surface-active"
-                    }`}
-                  >
-                    Blank
-                  </button>
-                  <button
-                    onClick={() => {
-                      setActiveTab("github");
-                    }}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                      activeTab === "github"
-                        ? "bg-zinc-700 text-white"
-                        : "text-zinc-400 hover:text-white hover:bg-surface-active"
-                    }`}
-                  >
-                    <Github className="w-3.5 h-3.5" />
-                    GitHub
-                  </button>
-                </div>
-
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                  {/* GitHub issue selection */}
-                  {activeTab === "github" && (
-                    <div className="space-y-3">
-                      {!selectedGithubIssue ? (
-                        <>
-                          {/* Repo URL input */}
-                          <form onSubmit={handleGithubRepoSubmit}>
-                            <div className="space-y-2">
-                              <label className="text-xs text-zinc-500">GitHub Repository URL</label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={githubRepoUrl}
-                                  onChange={(e) => setGithubRepoUrl(e.target.value)}
-                                  placeholder="https://github.com/owner/repo"
-                                  className="flex-1 px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors font-mono"
-                                />
-                                <button
-                                  type="submit"
-                                  disabled={!githubRepoUrl.trim() || githubLoading}
-                                  className="px-3 py-2 rounded-md bg-zinc-700 text-white text-sm font-medium hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  {githubLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Load"}
-                                </button>
-                              </div>
-                            </div>
-                          </form>
-
-                          {/* Issue list */}
-                          {(githubIssues.length > 0 || githubError) && (
-                            <div className="max-h-48 overflow-y-auto rounded-md border border-border">
-                              {githubLoading ? (
-                                <div className="p-6 text-center">
-                                  <Loader2 className="w-5 h-5 text-zinc-500 animate-spin mx-auto" />
-                                </div>
-                              ) : githubError ? (
-                                <div className="p-4 text-center">
-                                  <AlertCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />
-                                  <p className="text-xs text-red-400">{githubError}</p>
-                                </div>
-                              ) : githubIssues.length === 0 ? (
-                                <div className="p-6 text-center text-zinc-500 text-sm">
-                                  No open issues found
-                                </div>
-                              ) : (
-                                githubIssues.map((issue) => (
-                                  <button
-                                    key={issue.id}
-                                    onClick={() => setSelectedGithubIssue(issue)}
-                                    className="w-full p-3 hover:bg-canvas text-left transition-colors flex items-start gap-2 border-b border-border last:border-b-0"
-                                  >
-                                    <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-green-500" />
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2 mb-0.5">
-                                        <span className="text-[10px] font-mono text-zinc-400">
-                                          #{issue.number}
-                                        </span>
-                                        {issue.labels.slice(0, 2).map((label) => (
-                                          <span
-                                            key={label.name}
-                                            className="px-1.5 py-0.5 rounded text-[9px] font-medium"
-                                            style={{
-                                              backgroundColor: `#${label.color}20`,
-                                              color: `#${label.color}`,
-                                            }}
-                                          >
-                                            {label.name}
-                                          </span>
-                                        ))}
-                                      </div>
-                                      <p className="text-xs text-white truncate">{issue.title}</p>
-                                    </div>
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          {/* Selected issue */}
-                          <div className="p-3 rounded-lg bg-zinc-700/30 border border-zinc-600/30">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-mono font-semibold text-zinc-300">
-                                #{selectedGithubIssue.number}
-                              </span>
-                              <button
-                                onClick={() => setSelectedGithubIssue(null)}
-                                className="text-[10px] text-zinc-500 hover:text-white"
-                              >
-                                Change
-                              </button>
-                            </div>
-                            <p className="text-sm text-white">{selectedGithubIssue.title}</p>
-                          </div>
-
-                          {/* Branch options */}
-                          <div>
-                            <label className="text-xs text-zinc-500 flex items-center gap-1 mb-1.5">
-                              <GitBranch className="w-3 h-3" />
-                              Branch name
-                            </label>
-                            <input
-                              type="text"
-                              value={branchName}
-                              onChange={(e) => setBranchName(e.target.value)}
-                              className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">Base branch</label>
-                            <input
-                              type="text"
-                              value={baseBranch}
-                              onChange={(e) => setBaseBranch(e.target.value)}
-                              placeholder="main"
-                              className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                            />
-                          </div>
-
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={createWorktree}
-                              onChange={(e) => setCreateWorktree(e.target.checked)}
-                              className="w-4 h-4 rounded border-zinc-600 bg-canvas text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0"
-                            />
-                            <span className="text-sm text-zinc-300">Create git worktree</span>
-                          </label>
-                        </>
-                      )}
-                    </div>
-                  )}
-
                   {/* Name & Count (only for new agents) */}
                   {!isReplacing && (
                     <div className="flex gap-3">
@@ -718,6 +490,33 @@ export function NewSessionModal({
                       </div>
                     </div>
                   )}
+
+                  {/* Model selector */}
+                  <div className="space-y-2">
+                    <label className="text-xs text-zinc-500">Model</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setSelectedModel("sonnet")}
+                        className={`px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                          selectedModel === "sonnet"
+                            ? "border-violet-500 bg-violet-500/10 text-white"
+                            : "border-border bg-canvas text-zinc-400 hover:text-white hover:border-zinc-500"
+                        }`}
+                      >
+                        Sonnet
+                      </button>
+                      <button
+                        onClick={() => setSelectedModel("opus")}
+                        className={`px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
+                          selectedModel === "opus"
+                            ? "border-violet-500 bg-violet-500/10 text-white"
+                            : "border-border bg-canvas text-zinc-400 hover:text-white hover:border-zinc-500"
+                        }`}
+                      >
+                        Opus
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Command arguments */}
                   <div className="space-y-2">
@@ -907,7 +706,7 @@ export function NewSessionModal({
                   </button>
                   <button
                     onClick={handleCreate}
-                    disabled={!selectedAgent || isCreating || (!selectedAgent?.command && !commandArgs) || (activeTab === "github" && !selectedGithubIssue)}
+                    disabled={!selectedAgent || isCreating || (!selectedAgent?.command && !commandArgs)}
                     className="px-4 py-1.5 rounded-md text-sm font-medium text-canvas bg-white hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {isCreating

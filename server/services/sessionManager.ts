@@ -5,7 +5,7 @@ import { join, basename } from "path";
 import { homedir } from "os";
 import type { Session } from "../types";
 import { loadBuffer } from "./persistence";
-import { loadSettings } from "./worktreeConfig";
+import { loadSettings, loadWorktreeConfig } from "./worktreeConfig";
 
 const DEFAULT_PERMISSIONS = [
   // Shell basics
@@ -517,23 +517,33 @@ function getPluginDir(): string | null {
 export function injectPluginDir(command: string, agentId: string): string {
   if (agentId !== "claude") return command;
 
-  const pluginDir = getPluginDir();
-  if (!pluginDir) return command;
-
-  // Skip if this specific plugin dir is already in the command
-  if (command.includes(pluginDir)) return command;
-
-  const parts = command.split(/\s+/);
+  let cmd = command;
+  const parts = cmd.split(/\s+/);
 
   if (parts[0] === "isaac") {
-    parts.splice(1, 0, `--plugin-dir`, pluginDir);
-    const finalCmd = parts.join(" ");
-    log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting plugin-dir: ${pluginDir}`);
-    log(`\x1b[38;5;141m[plugin]\x1b[0m Final command: ${finalCmd}`);
-    return finalCmd;
+    // First, inject the default OpenUI plugin if available
+    const pluginDir = getPluginDir();
+    if (pluginDir && !cmd.includes(pluginDir)) {
+      parts.splice(1, 0, `--plugin-dir`, pluginDir);
+      log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting plugin-dir: ${pluginDir}`);
+    }
+
+    // Then, inject any user-configured plugin directories
+    const config = loadWorktreeConfig();
+    const pluginDirectories = config.pluginDirectories || [];
+
+    for (const pluginPath of pluginDirectories) {
+      if (!cmd.includes(pluginPath)) {
+        parts.splice(1, 0, `--plugin-dir`, pluginPath);
+        log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting user plugin-dir: ${pluginPath}`);
+      }
+    }
+
+    cmd = parts.join(" ");
+    log(`\x1b[38;5;141m[plugin]\x1b[0m Final command: ${cmd}`);
   }
 
-  return command;
+  return cmd;
 }
 
 // Remote plugin path on SSH hosts (synced via rsync)
@@ -563,17 +573,33 @@ async function syncPluginToRemote(remote: string): Promise<boolean> {
 // Supports multiple --plugin-dir flags (won't duplicate if already present).
 function injectRemotePluginDir(command: string, agentId: string): string {
   if (agentId !== "claude") return command;
-  // Skip if this specific remote plugin path is already in the command
-  if (command.includes(REMOTE_PLUGIN_PATH)) return command;
-  const parts = command.split(/\s+/);
+
+  let cmd = command;
+  const parts = cmd.split(/\s+/);
+
   if (parts[0] === "isaac") {
-    parts.splice(1, 0, "--plugin-dir", REMOTE_PLUGIN_PATH);
-    const finalCmd = parts.join(" ");
-    log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting remote plugin-dir: ${REMOTE_PLUGIN_PATH}`);
-    log(`\x1b[38;5;141m[plugin]\x1b[0m Final command: ${finalCmd}`);
-    return finalCmd;
+    // First, inject the default OpenUI plugin if not already present
+    if (!cmd.includes(REMOTE_PLUGIN_PATH)) {
+      parts.splice(1, 0, "--plugin-dir", REMOTE_PLUGIN_PATH);
+      log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting remote plugin-dir: ${REMOTE_PLUGIN_PATH}`);
+    }
+
+    // Then, inject any user-configured plugin directories
+    const config = loadWorktreeConfig();
+    const pluginDirectories = config.pluginDirectories || [];
+
+    for (const pluginPath of pluginDirectories) {
+      if (!cmd.includes(pluginPath)) {
+        parts.splice(1, 0, "--plugin-dir", pluginPath);
+        log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting user plugin-dir: ${pluginPath}`);
+      }
+    }
+
+    cmd = parts.join(" ");
+    log(`\x1b[38;5;141m[plugin]\x1b[0m Final command: ${cmd}`);
   }
-  return command;
+
+  return cmd;
 }
 
 // Inject --dangerously-skip-permissions if enabled in settings

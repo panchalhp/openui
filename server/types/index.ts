@@ -59,6 +59,7 @@ export interface WorktreeRepo {
 
 export interface WorktreeConfig {
   worktreeRepos: WorktreeRepo[];
+  pluginDirectories?: string[];
 }
 
 export interface PersistedNode {

@@ -20,7 +20,10 @@ export function loadWorktreeConfig(): WorktreeConfig {
     if (existsSync(CONFIG_FILE)) {
       const fileConfig = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
       if (fileConfig.worktreeRepos && Array.isArray(fileConfig.worktreeRepos)) {
-        return { worktreeRepos: fileConfig.worktreeRepos };
+        return {
+          worktreeRepos: fileConfig.worktreeRepos,
+          pluginDirectories: fileConfig.pluginDirectories || [],
+        };
       }
     }
   } catch (e) {
@@ -88,5 +91,28 @@ export function saveWorktreeConfig(worktreeRepos: WorktreeRepo[]): void {
     writeFileSync(CONFIG_FILE, JSON.stringify(updatedConfig, null, 2));
   } catch (e) {
     console.error("Failed to save worktree config:", e);
+  }
+}
+
+export function savePluginDirectories(pluginDirectories: string[]): void {
+  try {
+    const dir = join(LAUNCH_CWD, ".openui");
+    if (!existsSync(dir)) {
+      require("fs").mkdirSync(dir, { recursive: true });
+    }
+
+    let existingConfig = {};
+    if (existsSync(CONFIG_FILE)) {
+      existingConfig = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+    }
+
+    const updatedConfig = {
+      ...existingConfig,
+      pluginDirectories
+    };
+
+    writeFileSync(CONFIG_FILE, JSON.stringify(updatedConfig, null, 2));
+  } catch (e) {
+    console.error("Failed to save plugin directories:", e);
   }
 }
