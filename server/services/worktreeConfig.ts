@@ -23,6 +23,7 @@ export function loadWorktreeConfig(): WorktreeConfig {
         return {
           worktreeRepos: fileConfig.worktreeRepos,
           pluginDirectories: fileConfig.pluginDirectories || [],
+          investigationPluginDirectories: fileConfig.investigationPluginDirectories || [],
         };
       }
     }
@@ -94,7 +95,7 @@ export function saveWorktreeConfig(worktreeRepos: WorktreeRepo[]): void {
   }
 }
 
-export function savePluginDirectories(pluginDirectories: string[]): void {
+export function savePluginDirectories(pluginDirectories: string[], investigationPluginDirectories?: string[]): void {
   try {
     const dir = join(LAUNCH_CWD, ".openui");
     if (!existsSync(dir)) {
@@ -108,7 +109,8 @@ export function savePluginDirectories(pluginDirectories: string[]): void {
 
     const updatedConfig = {
       ...existingConfig,
-      pluginDirectories
+      pluginDirectories,
+      ...(investigationPluginDirectories !== undefined && { investigationPluginDirectories })
     };
 
     writeFileSync(CONFIG_FILE, JSON.stringify(updatedConfig, null, 2));

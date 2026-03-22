@@ -151,6 +151,7 @@ export function InvestigationModal({ open, onClose }: InvestigationModalProps) {
         initialPrompt,
         categoryId: "oncall-todo",
         remote: selectedRepo.remote,
+        isInvestigation: true,
       };
 
       if (createWorktree && branchName.trim()) {

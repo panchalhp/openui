@@ -514,7 +514,7 @@ function getPluginDir(): string | null {
 
 // Inject --plugin-dir flag for Claude commands if plugin is available.
 // Supports multiple --plugin-dir flags (won't duplicate if already present).
-export function injectPluginDir(command: string, agentId: string): string {
+export function injectPluginDir(command: string, agentId: string, isInvestigation?: boolean): string {
   if (agentId !== "claude") return command;
 
   let cmd = command;
@@ -536,6 +536,17 @@ export function injectPluginDir(command: string, agentId: string): string {
       if (!cmd.includes(pluginPath)) {
         parts.splice(1, 0, `--plugin-dir`, pluginPath);
         log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting user plugin-dir: ${pluginPath}`);
+      }
+    }
+
+    // If this is an investigation session, also inject investigation-specific plugins
+    if (isInvestigation) {
+      const investigationPluginDirectories = config.investigationPluginDirectories || [];
+      for (const pluginPath of investigationPluginDirectories) {
+        if (!cmd.includes(pluginPath)) {
+          parts.splice(1, 0, `--plugin-dir`, pluginPath);
+          log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting investigation plugin-dir: ${pluginPath}`);
+        }
       }
     }
 
@@ -571,7 +582,7 @@ async function syncPluginToRemote(remote: string): Promise<boolean> {
 
 // Inject --plugin-dir with the remote path for SSH sessions.
 // Supports multiple --plugin-dir flags (won't duplicate if already present).
-function injectRemotePluginDir(command: string, agentId: string): string {
+function injectRemotePluginDir(command: string, agentId: string, isInvestigation?: boolean): string {
   if (agentId !== "claude") return command;
 
   let cmd = command;
@@ -592,6 +603,17 @@ function injectRemotePluginDir(command: string, agentId: string): string {
       if (!cmd.includes(pluginPath)) {
         parts.splice(1, 0, "--plugin-dir", pluginPath);
         log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting user plugin-dir: ${pluginPath}`);
+      }
+    }
+
+    // If this is an investigation session, also inject investigation-specific plugins
+    if (isInvestigation) {
+      const investigationPluginDirectories = config.investigationPluginDirectories || [];
+      for (const pluginPath of investigationPluginDirectories) {
+        if (!cmd.includes(pluginPath)) {
+          parts.splice(1, 0, "--plugin-dir", pluginPath);
+          log(`\x1b[38;5;141m[plugin]\x1b[0m Injecting investigation plugin-dir: ${pluginPath}`);
+        }
       }
     }
 
@@ -1036,7 +1058,7 @@ async function createWorktreeAndStartAgent(params: {
   setupPtyHandlers(session, sessionId, ptyProcess);
 
   // Run the agent command
-  let finalCommand = remote ? injectRemotePluginDir(command, agentId) : injectPluginDir(command, agentId);
+  let finalCommand = remote ? injectRemotePluginDir(command, agentId, isInvestigation) : injectPluginDir(command, agentId, isInvestigation);
   finalCommand = injectSkipPermissions(finalCommand, agentId);
   log(`\x1b[38;5;82m[pty-write]\x1b[0m Writing command: ${finalCommand}`);
 
@@ -1268,6 +1290,7 @@ export function createSession(params: {
   remote?: string;
   initialPrompt?: string;
   categoryId?: string;
+  isInvestigation?: boolean;
 }): { session: Session; cwd: string; gitBranch?: string } {
   const {
     sessionId,
@@ -1286,6 +1309,7 @@ export function createSession(params: {
     remote,
     initialPrompt,
     categoryId,
+    isInvestigation,
   } = params;
 
   let workingDir = originalCwd;
@@ -1339,6 +1363,7 @@ export function createSession(params: {
       remote,
       initialPrompt,
       categoryId,
+      isInvestigation,
     };
 
     sessions.set(sessionId, session);
@@ -1437,13 +1462,14 @@ export function createSession(params: {
     remote,
     initialPrompt,
     categoryId,
+    isInvestigation,
   };
 
   sessions.set(sessionId, session);
   setupPtyHandlers(session, sessionId, ptyProcess);
 
   // Run the command (inject plugin dir for both local and remote)
-  let finalCommand = remote ? injectRemotePluginDir(command, agentId) : injectPluginDir(command, agentId);
+  let finalCommand = remote ? injectRemotePluginDir(command, agentId, isInvestigation) : injectPluginDir(command, agentId, isInvestigation);
   finalCommand = injectSkipPermissions(finalCommand, agentId);
   log(`\x1b[38;5;82m[pty-write]\x1b[0m Writing command: ${finalCommand}`);
 
@@ -1733,9 +1759,9 @@ export async function resumeSession(sessionId: string): Promise<boolean> {
     }
     // Also inject our openui status plugin
     if (session.remote) {
-      cmd = injectRemotePluginDir(cmd, session.agentId);
+      cmd = injectRemotePluginDir(cmd, session.agentId, session.isInvestigation);
     } else {
-      cmd = injectPluginDir(cmd, session.agentId);
+      cmd = injectPluginDir(cmd, session.agentId, session.isInvestigation);
     }
     cmd = injectSkipPermissions(cmd, session.agentId);
     return cmd;
@@ -1875,8 +1901,8 @@ function retryWithNewPty(
         }
         // Inject our openui status plugin
         freshCmd = session.remote
-          ? injectRemotePluginDir(freshCmd, session.agentId)
-          : injectPluginDir(freshCmd, session.agentId);
+          ? injectRemotePluginDir(freshCmd, session.agentId, session.isInvestigation)
+          : injectPluginDir(freshCmd, session.agentId, session.isInvestigation);
         freshCmd = injectSkipPermissions(freshCmd, session.agentId);
         retryWithNewPty(session, sessionId, freshCmd, () => 2); // No more retries
       }

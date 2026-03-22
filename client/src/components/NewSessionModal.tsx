@@ -126,7 +126,7 @@ export function NewSessionModal({
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [cwd, setCwd] = useState("");
   const [customName, setCustomName] = useState("");
-  const [selectedModel, setSelectedModel] = useState<string>("sonnet");
+  const [useOpus, setUseOpus] = useState<boolean>(false);
   const [commandArgs, setCommandArgs] = useState("");
   const [count, setCount] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
@@ -206,7 +206,7 @@ export function NewSessionModal({
       }
       setRemote("");
       setRecentDirs(loadRecentDirs());
-      setSelectedModel("sonnet");
+      setUseOpus(false);
       setInitialized(true);
     } else if (!open) {
       setInitialized(false);
@@ -290,12 +290,7 @@ export function NewSessionModal({
       saveRecentDir(workingDir, remote || undefined);
 
       // Build model flags
-      let modelFlags = "";
-      if (selectedModel === "opus") {
-        modelFlags = "--model opus";
-      } else if (selectedModel === "sonnet") {
-        modelFlags = "--model sonnet";
-      }
+      const modelFlags = useOpus ? "--model opus" : "";
 
       // Combine command with model flags and arguments
       const fullCommand = selectedAgent.command
@@ -491,31 +486,21 @@ export function NewSessionModal({
                     </div>
                   )}
 
-                  {/* Model selector */}
-                  <div className="space-y-2">
-                    <label className="text-xs text-zinc-500">Model</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => setSelectedModel("sonnet")}
-                        className={`px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
-                          selectedModel === "sonnet"
-                            ? "border-violet-500 bg-violet-500/10 text-white"
-                            : "border-border bg-canvas text-zinc-400 hover:text-white hover:border-zinc-500"
+                  {/* Use Opus toggle */}
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-zinc-400">Use Model Opus</label>
+                    <button
+                      onClick={() => setUseOpus(!useOpus)}
+                      className={`relative w-9 h-5 rounded-full transition-colors ${
+                        useOpus ? "bg-violet-600" : "bg-zinc-700"
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                          useOpus ? "left-[18px]" : "left-0.5"
                         }`}
-                      >
-                        Sonnet
-                      </button>
-                      <button
-                        onClick={() => setSelectedModel("opus")}
-                        className={`px-3 py-2 rounded-md text-xs font-medium border transition-colors ${
-                          selectedModel === "opus"
-                            ? "border-violet-500 bg-violet-500/10 text-white"
-                            : "border-border bg-canvas text-zinc-400 hover:text-white hover:border-zinc-500"
-                        }`}
-                      >
-                        Opus
-                      </button>
-                    </div>
+                      />
+                    </button>
                   </div>
 
                   {/* Command arguments */}

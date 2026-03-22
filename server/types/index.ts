@@ -46,6 +46,8 @@ export interface Session {
   categoryId?: string;
   sortOrder?: number;
   dueDate?: string;
+  // Investigation flag for plugin selection
+  isInvestigation?: boolean;
 }
 
 export interface WorktreeRepo {
@@ -60,6 +62,7 @@ export interface WorktreeRepo {
 export interface WorktreeConfig {
   worktreeRepos: WorktreeRepo[];
   pluginDirectories?: string[];
+  investigationPluginDirectories?: string[];
 }
 
 export interface PersistedNode {
@@ -82,6 +85,7 @@ export interface PersistedNode {
   categoryId?: string;
   sortOrder?: number;
   dueDate?: string;
+  isInvestigation?: boolean; // Investigation flag for plugin selection
 }
 
 export interface PersistedCategory {
