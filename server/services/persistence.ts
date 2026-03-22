@@ -49,12 +49,18 @@ export function saveState(sessions: Map<string, Session>) {
       agentName: session.agentName,
       command: session.command,
       cwd: session.cwd,
+      originalCwd: session.originalCwd,    // Persist for worktree cleanup
+      worktreePath: session.worktreePath,  // Persist for worktree cleanup
       createdAt: session.createdAt,
       customName: session.customName,
       customColor: session.customColor,
       notes: session.notes,
-      icon: session.icon,
       position: session.position || existingNode?.position || { x: 0, y: 0 },
+      claudeSessionId: session.claudeSessionId,
+      remote: session.remote,
+      categoryId: session.categoryId,
+      sortOrder: session.sortOrder,
+      dueDate: session.dueDate,
     });
 
     saveBuffer(sessionId, session.outputBuffer);

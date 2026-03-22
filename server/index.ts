@@ -2,28 +2,25 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
 import type { ServerWebSocket } from "bun";
+import { spawn } from "bun-pty";
 import { apiRoutes } from "./routes/api";
-import { sessions, restoreSessions } from "./services/sessionManager";
+import { sessions, restoreSessions, getRemoteHost } from "./services/sessionManager";
 import { saveState } from "./services/persistence";
 import type { WebSocketData } from "./types";
+
+const SHELL_BUFFER_MAX = 100;
+const shellTerminals = new Map<string, { pty: ReturnType<typeof spawn>; clients: Set<ServerWebSocket<WebSocketData>>; outputBuffer: string[] }>();
 
 const app = new Hono();
 const PORT = Number(process.env.PORT) || 6968;
 const QUIET = !!process.env.OPENUI_QUIET;
 
-// Conditionally log only in dev mode
 const log = QUIET ? () => {} : console.log.bind(console);
 
-// Middleware
 app.use("*", cors());
-
-// API Routes
 app.route("/api", apiRoutes);
-
-// Serve static files
 app.use("/*", serveStatic({ root: "./client/dist" }));
 
-// WebSocket server
 Bun.serve<WebSocketData>({
   port: PORT,
   fetch(req, server) {
@@ -41,11 +38,87 @@ Bun.serve<WebSocketData>({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    if (url.pathname === "/ws/shell") {
+      const sessionId = url.searchParams.get("sessionId");
+      const cwd = url.searchParams.get("cwd") || process.cwd();
+      const remote = url.searchParams.get("remote") || undefined;
+      if (!sessionId) return new Response("Session ID required", { status: 400 });
+
+      const shellId = `shell-${sessionId}`;
+      const upgraded = server.upgrade(req, { data: { sessionId: shellId, isShell: true, cwd, remote } });
+      if (upgraded) return undefined;
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+
     return app.fetch(req);
   },
   websocket: {
     open(ws) {
-      const { sessionId } = ws.data;
+      const { sessionId, isShell, cwd, remote } = ws.data;
+
+      if (isShell) {
+        log(`\x1b[38;5;245m[ws]\x1b[0m Shell connected: ${sessionId}${remote ? ` (remote: ${remote})` : ""}`);
+
+        let shell = shellTerminals.get(sessionId);
+        if (!shell) {
+          let ptyProcess;
+          if (remote) {
+            const host = getRemoteHost(remote);
+            ptyProcess = spawn("ssh", ["-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", host, `cd ${cwd} && exec zsh -l`], {
+              name: "xterm-256color",
+              cwd: process.cwd(),
+              env: { ...process.env, TERM: "xterm-256color" },
+              rows: 30,
+              cols: 120,
+            });
+          } else {
+            ptyProcess = spawn("/bin/zsh", [], {
+              name: "xterm-256color",
+              cwd: cwd || process.cwd(),
+              env: {
+                ...process.env,
+                TERM: "xterm-256color",
+              },
+              rows: 30,
+              cols: 120,
+            });
+          }
+
+          shell = { pty: ptyProcess, clients: new Set(), outputBuffer: [] };
+          shellTerminals.set(sessionId, shell);
+
+          ptyProcess.onData((data: string) => {
+            shell!.outputBuffer.push(data);
+            if (shell!.outputBuffer.length > SHELL_BUFFER_MAX) {
+              shell!.outputBuffer.shift();
+            }
+            for (const client of shell!.clients) {
+              if (client.readyState === 1) {
+                client.send(JSON.stringify({ type: "output", data }));
+              }
+            }
+          });
+
+          ptyProcess.onExit(() => {
+            log(`\x1b[38;5;245m[ws]\x1b[0m Shell process exited: ${sessionId}`);
+            for (const client of shell!.clients) {
+              if (client.readyState === 1) {
+                client.send(JSON.stringify({ type: "exited" }));
+              }
+            }
+          });
+        }
+
+        shell.clients.add(ws);
+
+        // Replay buffered output so reconnecting clients see history
+        if (shell.outputBuffer.length > 0) {
+          const history = shell.outputBuffer.join("");
+          ws.send(JSON.stringify({ type: "output", data: history }));
+        }
+        return;
+      }
+
       const session = sessions.get(sessionId);
 
       if (!session) {
@@ -62,18 +135,92 @@ Bun.serve<WebSocketData>({
       } else if (session.isRestored || !session.pty) {
         ws.send(JSON.stringify({
           type: "output",
-          data: "\x1b[38;5;245mSession was disconnected.\r\nClick \"Spawn Fresh\" to start a new session.\x1b[0m\r\n"
+          data: "\x1b[38;5;245mSession was disconnected.\r\nClick \"Resume\" to continue or \"New Session\" to start fresh.\x1b[0m\r\n"
         }));
       }
 
       ws.send(JSON.stringify({
         type: "status",
         status: session.status,
-        isRestored: session.isRestored
+        isRestored: session.isRestored,
+        creationProgress: session.creationProgress,
       }));
     },
     message(ws, message) {
-      const { sessionId } = ws.data;
+      const { sessionId, isShell } = ws.data;
+
+      if (isShell) {
+        const shell = shellTerminals.get(sessionId);
+        if (!shell) return;
+
+        try {
+          const msg = JSON.parse(message.toString());
+          switch (msg.type) {
+            case "input":
+              shell.pty.write(msg.data);
+              break;
+            case "resize":
+              shell.pty.resize(msg.cols, msg.rows);
+              break;
+            case "restart":
+              log(`\x1b[38;5;245m[ws]\x1b[0m Restarting shell: ${sessionId}`);
+              shell.pty.kill();
+
+              let newPty;
+              if (ws.data.remote) {
+                const restartHost = getRemoteHost(ws.data.remote);
+                newPty = spawn("ssh", ["-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", restartHost, `cd ${ws.data.cwd} && exec zsh -l`], {
+                  name: "xterm-256color",
+                  cwd: process.cwd(),
+                  env: { ...process.env, TERM: "xterm-256color" },
+                  rows: 30,
+                  cols: 120,
+                });
+              } else {
+                newPty = spawn("/bin/zsh", [], {
+                  name: "xterm-256color",
+                  cwd: ws.data.cwd || process.cwd(),
+                  env: {
+                    ...process.env,
+                    TERM: "xterm-256color",
+                  },
+                  rows: 30,
+                  cols: 120,
+                });
+              }
+
+              shell.pty = newPty;
+
+              newPty.onData((data: string) => {
+                for (const client of shell.clients) {
+                  if (client.readyState === 1) {
+                    client.send(JSON.stringify({ type: "output", data }));
+                  }
+                }
+              });
+
+              newPty.onExit(() => {
+                log(`\x1b[38;5;245m[ws]\x1b[0m Restarted shell process exited: ${sessionId}`);
+                for (const client of shell.clients) {
+                  if (client.readyState === 1) {
+                    client.send(JSON.stringify({ type: "exited" }));
+                  }
+                }
+              });
+
+              for (const client of shell.clients) {
+                if (client.readyState === 1) {
+                  client.send(JSON.stringify({ type: "restarted" }));
+                }
+              }
+              break;
+          }
+        } catch (e) {
+          if (!QUIET) console.error("Error processing shell message:", e);
+        }
+        return;
+      }
+
       const session = sessions.get(sessionId);
       if (!session) return;
 
@@ -97,7 +244,17 @@ Bun.serve<WebSocketData>({
       }
     },
     close(ws) {
-      const { sessionId } = ws.data;
+      const { sessionId, isShell } = ws.data;
+
+      if (isShell) {
+        const shell = shellTerminals.get(sessionId);
+        if (shell) {
+          shell.clients.delete(ws);
+          log(`\x1b[38;5;245m[ws]\x1b[0m Shell disconnected: ${sessionId}`);
+        }
+        return;
+      }
+
       const session = sessions.get(sessionId);
       if (session) {
         session.clients.delete(ws);
@@ -107,24 +264,23 @@ Bun.serve<WebSocketData>({
   },
 });
 
-// Restore sessions on startup
 restoreSessions();
 
 log(`\x1b[38;5;141m[server]\x1b[0m Running on http://localhost:${PORT}`);
 log(`\x1b[38;5;245m[server]\x1b[0m Launch directory: ${process.env.LAUNCH_CWD || process.cwd()}`);
 
-// Periodic state save
 setInterval(() => {
   saveState(sessions);
 }, 30000);
 
-// Cleanup on exit
 process.on("SIGINT", () => {
   log("\n\x1b[38;5;245m[server]\x1b[0m Saving state before exit...");
   saveState(sessions);
   for (const [, session] of sessions) {
     if (session.pty) session.pty.kill();
-    if (session.stateTrackerPty) session.stateTrackerPty.kill();
+  }
+  for (const [, shell] of shellTerminals) {
+    shell.pty.kill();
   }
   process.exit(0);
 });

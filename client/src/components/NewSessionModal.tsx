@@ -3,44 +3,22 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
-  Sparkles,
-  Code,
-  Cpu,
   FolderOpen,
+  FolderPlus,
   Terminal,
   Plus,
   Minus,
-  Search,
   Loader2,
   GitBranch,
   AlertCircle,
-  Ticket,
   Home,
   ArrowUp,
   Github,
-  Brain,
-  RefreshCw,
+  Clock,
 } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import { useStore, Agent, AgentSession } from "../stores/useStore";
 
-const iconMap: Record<string, any> = {
-  sparkles: Sparkles,
-  code: Code,
-  cpu: Cpu,
-  brain: Brain,
-};
-
-interface LinearTicket {
-  id: string;
-  identifier: string;
-  title: string;
-  url: string;
-  state: { name: string; color: string };
-  priority: number;
-  assignee?: { name: string };
-  team?: { name: string; key: string };
-}
 
 interface GitHubIssue {
   id: number;
@@ -60,7 +38,7 @@ interface NewSessionModalProps {
   existingNodeId?: string;
 }
 
-type TabType = "blank" | "linear" | "github";
+type TabType = "blank" | "github";
 
 // Node dimensions for collision detection
 const NODE_WIDTH = 200;
@@ -168,13 +146,7 @@ export function NewSessionModal({
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>("blank");
 
-  // Linear state
-  const [linearConfigured, setLinearConfigured] = useState<boolean | null>(null);
-  const [tickets, setTickets] = useState<LinearTicket[]>([]);
-  const [ticketsLoading, setTicketsLoading] = useState(false);
-  const [ticketsError, setTicketsError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTicket, setSelectedTicket] = useState<LinearTicket | null>(null);
+  // Branch/worktree state for GitHub issues
   const [branchName, setBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("main");
   const [createWorktree, setCreateWorktree] = useState(true);
@@ -186,6 +158,9 @@ export function NewSessionModal({
   const [dirBrowseDirs, setDirBrowseDirs] = useState<{ name: string; path: string }[]>([]);
   const [dirBrowseLoading, setDirBrowseLoading] = useState(false);
   const [dirBrowseError, setDirBrowseError] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
 
   // GitHub state
   const [githubRepoUrl, setGithubRepoUrl] = useState("");
@@ -194,71 +169,79 @@ export function NewSessionModal({
   const [githubError, setGithubError] = useState<string | null>(null);
   const [selectedGithubIssue, setSelectedGithubIssue] = useState<GitHubIssue | null>(null);
 
+  // Remote host state (kept for infrastructure compatibility, but UI hidden)
+  const [remote, setRemote] = useState<string>("");
+
+  // Recent directories
+  const [recentDirs, setRecentDirs] = useState<string[]>([]);
+
   // Track if we've initialized for this modal open
   const [initialized, setInitialized] = useState(false);
+
+  // Update cwd, recent dirs, and close dir picker when remote changes
+  useEffect(() => {
+    setShowDirPicker(false);
+    setCwd(remote ? DEFAULT_REMOTE_CWD : DEFAULT_CWD);
+    setRecentDirs(loadRecentDirs(remote || undefined));
+  }, [remote]);
+
+  const DEFAULT_CWD = "~/openui";
+  const DEFAULT_REMOTE_CWD = "~";
+  const MAX_RECENT_DIRS = 5;
+
+  const recentDirsKey = (host?: string) =>
+    host ? `openui-recent-dirs-${host}` : "openui-recent-dirs";
+
+  const loadRecentDirs = (host?: string): string[] => {
+    try {
+      return JSON.parse(localStorage.getItem(recentDirsKey(host)) || "[]");
+    } catch { return []; }
+  };
+
+  const saveRecentDir = (dir: string, host?: string) => {
+    if (!dir) return;
+    const key = recentDirsKey(host);
+    const recent = loadRecentDirs(host).filter(d => d !== dir);
+    recent.unshift(dir);
+    localStorage.setItem(key, JSON.stringify(recent.slice(0, MAX_RECENT_DIRS)));
+  };
 
   // Reset form when modal opens (only once per open)
   useEffect(() => {
     if (open && !initialized) {
+      // Auto-select Claude Code agent
+      const claudeAgent = agents.find((a) => a.id === "claude");
+
       if (existingSession) {
         // Pre-fill from existing session
         const agent = agents.find((a) => a.id === existingSession.agentId);
-        setSelectedAgent(agent || null);
+        setSelectedAgent(agent || claudeAgent || null);
         setCwd(existingSession.cwd);
         setCustomName(existingSession.customName || "");
         setCommandArgs("");
         setCount(1);
       } else {
-        setSelectedAgent(null);
-        setCwd("");
+        setSelectedAgent(claudeAgent || null);
+        setCwd(DEFAULT_CWD);
         setCustomName("");
         setCommandArgs("");
         setCount(1);
       }
+      setRemote("");
+      setRecentDirs(loadRecentDirs());
       setActiveTab("blank");
-      setSelectedTicket(null);
-      setSearchQuery("");
-      setTickets([]);
-      setTicketsError(null);
-      // Reset GitHub state
       setSelectedGithubIssue(null);
       setGithubIssues([]);
       setGithubError(null);
       setInitialized(true);
-
-      // Check Linear config
-      fetch("/api/linear/config")
-        .then((res) => res.json())
-        .then((config) => {
-          setLinearConfigured(config.hasApiKey);
-          setBaseBranch(config.defaultBaseBranch || "main");
-          setCreateWorktree(config.createWorktree ?? true);
-        })
-        .catch(() => setLinearConfigured(false));
     } else if (!open) {
-      // Reset flags when modal closes
       setInitialized(false);
-      setLinearConfigured(null);
     }
   }, [open, initialized, existingSession, agents]);
 
-  // Load tickets when switching to linear tab
+  // Generate branch name from GitHub issue
   useEffect(() => {
-    if (activeTab === "linear" && linearConfigured === true && !ticketsLoading && tickets.length === 0 && !ticketsError) {
-      loadMyTickets();
-    }
-  }, [activeTab, linearConfigured]);
-
-  // Generate branch name from ticket (Linear or GitHub)
-  useEffect(() => {
-    if (selectedTicket) {
-      const slug = selectedTicket.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 40);
-      setBranchName(`${selectedTicket.identifier.toLowerCase()}/${slug}`);
-    } else if (selectedGithubIssue) {
+    if (selectedGithubIssue) {
       const slug = selectedGithubIssue.title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
@@ -266,14 +249,18 @@ export function NewSessionModal({
         .slice(0, 40);
       setBranchName(`issue-${selectedGithubIssue.number}/${slug}`);
     }
-  }, [selectedTicket, selectedGithubIssue]);
+  }, [selectedGithubIssue]);
 
   // Directory browsing
   const browsePath = async (path?: string) => {
     setDirBrowseLoading(true);
     setDirBrowseError(null);
+    setShowNewFolder(false);
     try {
-      const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : "/api/browse";
+      const params = new URLSearchParams();
+      if (path) params.set("path", path);
+      if (remote) params.set("remote", remote);
+      const url = `/api/browse?${params.toString()}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data.error) {
@@ -290,59 +277,41 @@ export function NewSessionModal({
     }
   };
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !dirBrowsePath) return;
+    setCreatingFolder(true);
+    try {
+      const fullPath = `${dirBrowsePath}/${newFolderName.trim()}`;
+      const res = await fetch("/api/mkdir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: fullPath, ...(remote && { remote }) }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setDirBrowseError(data.error);
+      } else {
+        setNewFolderName("");
+        setShowNewFolder(false);
+        // Refresh and select the new folder
+        await browsePath(dirBrowsePath);
+        selectDirectory(fullPath);
+      }
+    } catch (e: any) {
+      setDirBrowseError(e.message);
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
   const openDirPicker = () => {
     setShowDirPicker(true);
-    browsePath(cwd || launchCwd);
+    browsePath(remote ? "~" : (cwd || launchCwd));
   };
 
   const selectDirectory = (path: string) => {
     setCwd(path);
     setShowDirPicker(false);
-  };
-
-  const loadMyTickets = async () => {
-    setTicketsLoading(true);
-    setTicketsError(null);
-    try {
-      const res = await fetch("/api/linear/tickets");
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to load tickets");
-      }
-      const data = await res.json();
-      setTickets(data);
-    } catch (e: any) {
-      setTicketsError(e.message);
-    } finally {
-      setTicketsLoading(false);
-    }
-  };
-
-  const searchTickets = async (query: string) => {
-    if (!query.trim()) {
-      loadMyTickets();
-      return;
-    }
-    setTicketsLoading(true);
-    setTicketsError(null);
-    try {
-      const res = await fetch(`/api/linear/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Search failed");
-      }
-      const data = await res.json();
-      setTickets(data);
-    } catch (e: any) {
-      setTicketsError(e.message);
-    } finally {
-      setTicketsLoading(false);
-    }
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    searchTickets(searchQuery);
   };
 
   // GitHub functions
@@ -381,6 +350,7 @@ export function NewSessionModal({
 
     try {
       const workingDir = cwd || (isReplacing ? existingSession?.cwd : null) || launchCwd;
+      saveRecentDir(workingDir, remote || undefined);
       const fullCommand = selectedAgent.command
         ? (commandArgs ? `${selectedAgent.command} ${commandArgs}` : selectedAgent.command)
         : commandArgs;
@@ -401,19 +371,8 @@ export function NewSessionModal({
             nodeId: existingNodeId,
             customName: customName || existingSession.customName,
             customColor: existingSession.customColor,
-            // Ticket info if selected (Linear or GitHub)
-            ...(selectedTicket && {
-              ticketId: selectedTicket.identifier,
-              ticketTitle: selectedTicket.title,
-              ticketUrl: selectedTicket.url,
-              branchName,
-              baseBranch,
-              createWorktree,
-            }),
+            ...(remote && { remote }),
             ...(selectedGithubIssue && {
-              ticketId: `#${selectedGithubIssue.number}`,
-              ticketTitle: selectedGithubIssue.title,
-              ticketUrl: selectedGithubIssue.url,
               branchName,
               baseBranch,
               createWorktree,
@@ -431,9 +390,8 @@ export function NewSessionModal({
             cwd: newCwd || workingDir,
             status: "idle",
             isRestored: false,
-            ticketId: selectedTicket?.identifier || (selectedGithubIssue ? `#${selectedGithubIssue.number}` : undefined),
-            ticketTitle: selectedTicket?.title || selectedGithubIssue?.title,
             gitBranch: gitBranch || branchName || undefined,
+            remote: remote || undefined,
           });
         }
       } else {
@@ -467,19 +425,8 @@ export function NewSessionModal({
               cwd: workingDir,
               nodeId,
               customName: count > 1 ? agentName : customName || undefined,
-              // Ticket info if selected (only for first agent)
-              ...(i === 0 && selectedTicket && {
-                ticketId: selectedTicket.identifier,
-                ticketTitle: selectedTicket.title,
-                ticketUrl: selectedTicket.url,
-                branchName,
-                baseBranch,
-                createWorktree,
-              }),
+              ...(remote && { remote }),
               ...(i === 0 && selectedGithubIssue && {
-                ticketId: `#${selectedGithubIssue.number}`,
-                ticketTitle: selectedGithubIssue.title,
-                ticketUrl: selectedGithubIssue.url,
                 branchName,
                 baseBranch,
                 createWorktree,
@@ -516,8 +463,7 @@ export function NewSessionModal({
             gitBranch: gitBranch || branchName || undefined,
             status: "idle",
             customName: count > 1 ? agentName : customName || undefined,
-            ticketId: i === 0 ? (selectedTicket?.identifier || (selectedGithubIssue ? `#${selectedGithubIssue.number}` : undefined)) : undefined,
-            ticketTitle: i === 0 ? (selectedTicket?.title || selectedGithubIssue?.title) : undefined,
+            remote: remote || undefined,
           });
         }
       }
@@ -528,14 +474,6 @@ export function NewSessionModal({
     } finally {
       setIsCreating(false);
     }
-  };
-
-  const priorityColors: Record<number, string> = {
-    0: "#6B7280",
-    1: "#EF4444",
-    2: "#F97316",
-    3: "#FBBF24",
-    4: "#22C55E",
   };
 
   return createPortal(
@@ -576,7 +514,6 @@ export function NewSessionModal({
                   <button
                     onClick={() => {
                       setActiveTab("blank");
-                      setSelectedTicket(null);
                       setSelectedGithubIssue(null);
                     }}
                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -589,25 +526,7 @@ export function NewSessionModal({
                   </button>
                   <button
                     onClick={() => {
-                      setActiveTab("linear");
-                      setSelectedGithubIssue(null);
-                    }}
-                    disabled={linearConfigured === false}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                      activeTab === "linear"
-                        ? "bg-indigo-600 text-white"
-                        : linearConfigured === false
-                        ? "text-zinc-600 cursor-not-allowed"
-                        : "text-zinc-400 hover:text-white hover:bg-surface-active"
-                    }`}
-                  >
-                    <Ticket className="w-3.5 h-3.5" />
-                    Linear
-                  </button>
-                  <button
-                    onClick={() => {
                       setActiveTab("github");
-                      setSelectedTicket(null);
                     }}
                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
                       activeTab === "github"
@@ -622,172 +541,6 @@ export function NewSessionModal({
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                  {/* Agent selection (only for new agents) */}
-                  {!isReplacing && (
-                    <div className="space-y-2">
-                      <label className="text-xs text-zinc-500">Select Agent</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {agents.map((agent) => {
-                          const Icon = iconMap[agent.icon] || Cpu;
-                          const isSelected = selectedAgent?.id === agent.id;
-                          return (
-                            <button
-                              key={agent.id}
-                              onClick={() => setSelectedAgent(agent)}
-                              className={`relative p-3 rounded-md text-left transition-all border ${
-                                isSelected
-                                  ? "border-white/20 bg-surface-active"
-                                  : "border-border hover:border-border hover:bg-surface-hover"
-                              }`}
-                            >
-                              <div
-                                className="w-8 h-8 rounded-md flex items-center justify-center mb-2"
-                                style={{ backgroundColor: `${agent.color}20` }}
-                              >
-                                <Icon className="w-4 h-4" style={{ color: agent.color }} />
-                              </div>
-                              <h3 className="text-sm font-medium text-white">{agent.name}</h3>
-                              <p className="text-[10px] text-zinc-500 mt-0.5">{agent.description}</p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Linear ticket selection */}
-                  {activeTab === "linear" && (
-                    <div className="space-y-3">
-                      {!selectedTicket ? (
-                        <>
-                          {/* Search */}
-                          <form onSubmit={handleSearch} className="flex gap-2">
-                            <div className="relative flex-1">
-                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                              <input
-                                type="text"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search tickets..."
-                                className="w-full pl-9 pr-3 py-2 rounded-md bg-canvas border border-border text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => loadMyTickets()}
-                              disabled={ticketsLoading}
-                              className="px-3 py-2 rounded-md bg-canvas border border-border text-zinc-400 hover:text-white hover:bg-surface-active disabled:opacity-50 transition-colors"
-                              title="Refresh tickets"
-                            >
-                              <RefreshCw className={`w-4 h-4 ${ticketsLoading ? "animate-spin" : ""}`} />
-                            </button>
-                          </form>
-
-                          {/* Ticket list */}
-                          <div className="max-h-48 overflow-y-auto rounded-md border border-border">
-                            {ticketsLoading ? (
-                              <div className="p-6 text-center">
-                                <Loader2 className="w-5 h-5 text-zinc-500 animate-spin mx-auto" />
-                              </div>
-                            ) : ticketsError ? (
-                              <div className="p-4 text-center">
-                                <AlertCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />
-                                <p className="text-xs text-red-400">{ticketsError}</p>
-                              </div>
-                            ) : tickets.length === 0 ? (
-                              <div className="p-6 text-center text-zinc-500 text-sm">
-                                No tickets found
-                              </div>
-                            ) : (
-                              tickets.map((ticket) => (
-                                <button
-                                  key={ticket.id}
-                                  onClick={() => setSelectedTicket(ticket)}
-                                  className="w-full p-3 hover:bg-canvas text-left transition-colors flex items-start gap-2 border-b border-border last:border-b-0"
-                                >
-                                  <div
-                                    className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                                    style={{ backgroundColor: priorityColors[ticket.priority] || "#6B7280" }}
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                      <span className="text-[10px] font-mono text-indigo-400">
-                                        {ticket.identifier}
-                                      </span>
-                                      <span
-                                        className="px-1.5 py-0.5 rounded text-[9px] font-medium"
-                                        style={{
-                                          backgroundColor: `${ticket.state.color}20`,
-                                          color: ticket.state.color,
-                                        }}
-                                      >
-                                        {ticket.state.name}
-                                      </span>
-                                    </div>
-                                    <p className="text-xs text-white truncate">{ticket.title}</p>
-                                  </div>
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          {/* Selected ticket */}
-                          <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-mono font-semibold text-indigo-400">
-                                {selectedTicket.identifier}
-                              </span>
-                              <button
-                                onClick={() => setSelectedTicket(null)}
-                                className="text-[10px] text-zinc-500 hover:text-white"
-                              >
-                                Change
-                              </button>
-                            </div>
-                            <p className="text-sm text-white">{selectedTicket.title}</p>
-                          </div>
-
-                          {/* Branch options */}
-                          <div>
-                            <label className="text-xs text-zinc-500 flex items-center gap-1 mb-1.5">
-                              <GitBranch className="w-3 h-3" />
-                              Branch name
-                            </label>
-                            <input
-                              type="text"
-                              value={branchName}
-                              onChange={(e) => setBranchName(e.target.value)}
-                              className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">Base branch</label>
-                            <input
-                              type="text"
-                              value={baseBranch}
-                              onChange={(e) => setBaseBranch(e.target.value)}
-                              placeholder="main"
-                              className="w-full px-3 py-2 rounded-md bg-canvas border border-border text-white text-sm font-mono placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
-                            />
-                          </div>
-
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={createWorktree}
-                              onChange={(e) => setCreateWorktree(e.target.checked)}
-                              className="w-4 h-4 rounded border-zinc-600 bg-canvas text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0"
-                            />
-                            <span className="text-sm text-zinc-300">Create git worktree</span>
-                          </label>
-                        </>
-                      )}
-                    </div>
-                  )}
-
                   {/* GitHub issue selection */}
                   {activeTab === "github" && (
                     <div className="space-y-3">
@@ -992,6 +745,24 @@ export function NewSessionModal({
                       <FolderOpen className="w-3 h-3" />
                       Working Directory
                     </label>
+                    {recentDirs.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {recentDirs.map((dir) => (
+                          <button
+                            key={dir}
+                            onClick={() => setCwd(dir)}
+                            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-colors ${
+                              cwd === dir
+                                ? "bg-white/10 text-white border border-zinc-500"
+                                : "bg-canvas border border-border text-zinc-400 hover:text-white hover:border-zinc-500"
+                            }`}
+                          >
+                            <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                            {dir.split("/").slice(-2).join("/")}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -1037,12 +808,41 @@ export function NewSessionModal({
                             </span>
                           </div>
                           <button
+                            onClick={() => { setShowNewFolder(!showNewFolder); setNewFolderName(""); }}
+                            className="p-1 rounded hover:bg-surface-active text-zinc-400 hover:text-white transition-colors flex-shrink-0 ml-1"
+                            title="New folder"
+                          >
+                            <FolderPlus className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => setShowDirPicker(false)}
-                            className="p-1 rounded hover:bg-surface-active text-zinc-500 hover:text-white transition-colors flex-shrink-0 ml-2"
+                            className="p-1 rounded hover:bg-surface-active text-zinc-500 hover:text-white transition-colors flex-shrink-0 ml-1"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+
+                        {/* New folder form */}
+                        {showNewFolder && (
+                          <div className="px-3 py-2 border-b border-border flex gap-2">
+                            <input
+                              type="text"
+                              value={newFolderName}
+                              onChange={(e) => setNewFolderName(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+                              placeholder="Folder name"
+                              autoFocus
+                              className="flex-1 px-2 py-1 rounded bg-surface border border-border text-white text-xs placeholder-zinc-600 focus:outline-none focus:border-zinc-500"
+                            />
+                            <button
+                              onClick={handleCreateFolder}
+                              disabled={!newFolderName.trim() || creatingFolder}
+                              className="px-2 py-1 rounded bg-orange-600 text-white text-xs font-medium hover:bg-orange-500 disabled:opacity-50 transition-colors"
+                            >
+                              {creatingFolder ? "..." : "Create"}
+                            </button>
+                          </div>
+                        )}
 
                         {/* Directory list */}
                         <div className="max-h-40 overflow-y-auto">
@@ -1107,7 +907,7 @@ export function NewSessionModal({
                   </button>
                   <button
                     onClick={handleCreate}
-                    disabled={!selectedAgent || isCreating || (!selectedAgent?.command && !commandArgs) || (activeTab === "linear" && !selectedTicket) || (activeTab === "github" && !selectedGithubIssue)}
+                    disabled={!selectedAgent || isCreating || (!selectedAgent?.command && !commandArgs) || (activeTab === "github" && !selectedGithubIssue)}
                     className="px-4 py-1.5 rounded-md text-sm font-medium text-canvas bg-white hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {isCreating
