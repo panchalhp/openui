@@ -136,6 +136,88 @@ apiRoutes.get("/remotes", (c) => {
   return c.json(Object.keys(REMOTE_HOSTS));
 });
 
+// List existing Claude Code sessions from ~/.claude/projects/
+apiRoutes.get("/claude-sessions", async (c) => {
+  const { readdirSync, statSync, existsSync, createReadStream } = await import("fs");
+  const { join } = await import("path");
+  const { homedir } = await import("os");
+  const { createInterface } = await import("readline");
+
+  const projectsDir = join(homedir(), ".claude", "projects");
+  if (!existsSync(projectsDir)) return c.json([]);
+
+  // Collect already-tracked claudeSessionIds so we can mark them
+  const trackedIds = new Set<string>();
+  for (const [, s] of sessions) {
+    if (s.claudeSessionId) trackedIds.add(s.claudeSessionId);
+  }
+
+  // Read the first cwd + sessionId + first human prompt from a JSONL file
+  const readSessionMeta = (filePath: string): Promise<{ cwd: string; sessionId: string; firstPrompt?: string } | null> => {
+    return new Promise((resolve) => {
+      const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
+      let meta: { cwd: string; sessionId: string; firstPrompt?: string } | null = null;
+      rl.on("line", (line) => {
+        if (meta?.firstPrompt) return; // have everything we need
+        try {
+          const rec = JSON.parse(line);
+          if (!meta && rec.cwd && rec.sessionId) {
+            meta = { cwd: rec.cwd, sessionId: rec.sessionId };
+          }
+          if (meta && !meta.firstPrompt && rec.type === "user" && !rec.toolUseResult) {
+            const msg = rec.message;
+            const text = typeof msg?.content === "string"
+              ? msg.content
+              : Array.isArray(msg?.content)
+                ? msg.content.find((b: any) => b.type === "text")?.text
+                : null;
+            if (text) {
+              meta.firstPrompt = text.slice(0, 120).replace(/\n+/g, " ");
+              rl.close();
+            }
+          }
+        } catch {}
+      });
+      rl.on("close", () => resolve(meta));
+      rl.on("error", () => resolve(meta));
+    });
+  };
+
+  try {
+    const result = [];
+    const projectDirs = readdirSync(projectsDir, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => e.name);
+
+    for (const proj of projectDirs) {
+      const projPath = join(projectsDir, proj);
+      const jsonlFiles = readdirSync(projPath).filter(f => f.endsWith(".jsonl"));
+      for (const file of jsonlFiles) {
+        const filePath = join(projPath, file);
+        const sessionId = file.replace(".jsonl", "");
+        try {
+          const mtime = statSync(filePath).mtimeMs;
+          const rec = await readSessionMeta(filePath);
+          if (!rec) continue;
+          const sid = rec.sessionId || sessionId;
+          result.push({
+            sessionId: sid,
+            cwd: rec.cwd,
+            firstPrompt: rec.firstPrompt,
+            startedAt: mtime,
+            alreadyImported: trackedIds.has(sid),
+          });
+        } catch {}
+      }
+    }
+
+    result.sort((a, b) => b.startedAt - a.startedAt);
+    return c.json(result);
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 apiRoutes.get("/sessions", (c) => {
   const sessionList = Array.from(sessions.entries()).map(([id, session]) => {
     return {
@@ -222,6 +304,7 @@ apiRoutes.post("/sessions", async (c) => {
     categoryId,
     isInvestigation,
     investigationUrl,
+    claudeSessionId,
   } = body;
 
   const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -253,6 +336,7 @@ apiRoutes.post("/sessions", async (c) => {
     categoryId,
     isInvestigation,
     investigationUrl,
+    claudeSessionId,
   });
 
   saveState(sessions);

@@ -1226,6 +1226,7 @@ export function createSession(params: {
   categoryId?: string;
   isInvestigation?: boolean;
   investigationUrl?: string;
+  claudeSessionId?: string;
 }): { session: Session; cwd: string; gitBranch?: string } {
   const {
     sessionId,
@@ -1246,6 +1247,7 @@ export function createSession(params: {
     categoryId,
     isInvestigation,
     investigationUrl,
+    claudeSessionId,
   } = params;
 
   let workingDir = originalCwd;
@@ -1401,13 +1403,19 @@ export function createSession(params: {
     categoryId,
     isInvestigation,
     investigationUrl,
+    claudeSessionId,
   };
 
   sessions.set(sessionId, session);
   setupPtyHandlers(session, sessionId, ptyProcess);
 
+  // If importing an existing Claude session, override command to resume it
+  const baseCommand = (claudeSessionId && agentId === "claude")
+    ? command.replace(/^(\S+)/, `$1 --resume ${claudeSessionId}`)
+    : command;
+
   // Run the command (inject plugin dir for both local and remote)
-  let finalCommand = remote ? injectRemotePluginDir(command, agentId, isInvestigation) : injectPluginDir(command, agentId, isInvestigation);
+  let finalCommand = remote ? injectRemotePluginDir(baseCommand, agentId, isInvestigation) : injectPluginDir(baseCommand, agentId, isInvestigation);
   finalCommand = injectSkipPermissions(finalCommand, agentId);
   log(`\x1b[38;5;82m[pty-write]\x1b[0m Writing command: ${finalCommand}`);
 

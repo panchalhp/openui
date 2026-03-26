@@ -14,6 +14,7 @@ import {
   Home,
   ArrowUp,
   Clock,
+  Download,
 } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import { useStore, Agent, AgentSession } from "../stores/useStore";
@@ -153,6 +154,15 @@ export function NewSessionModal({
   // Recent directories
   const [recentDirs, setRecentDirs] = useState<string[]>([]);
 
+  // Tab state: "new" or "import"
+  const [activeTab, setActiveTab] = useState<"new" | "import">("new");
+
+  // Import tab state
+  const [claudeSessions, setClaudeSessions] = useState<{ sessionId: string; cwd: string; firstPrompt?: string; startedAt: number; alreadyImported: boolean }[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [selectedClaudeSession, setSelectedClaudeSession] = useState<string | null>(null);
+
   // Track if we've initialized for this modal open
   const [initialized, setInitialized] = useState(false);
 
@@ -210,8 +220,30 @@ export function NewSessionModal({
       setInitialized(true);
     } else if (!open) {
       setInitialized(false);
+      setActiveTab("new");
+      setSelectedClaudeSession(null);
+      setClaudeSessions([]);
+      setImportError(null);
     }
   }, [open, initialized, existingSession, agents]);
+
+  const fetchClaudeSessions = async () => {
+    setImportLoading(true);
+    setImportError(null);
+    try {
+      const res = await fetch("/api/claude-sessions");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setClaudeSessions(data);
+      } else {
+        setImportError(data.error || "Failed to load sessions");
+      }
+    } catch (e: any) {
+      setImportError(e.message);
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   // Directory browsing
   const browsePath = async (path?: string) => {
@@ -408,6 +440,74 @@ export function NewSessionModal({
     }
   };
 
+  const handleImport = async () => {
+    if (!selectedClaudeSession) return;
+    const claudeSession = claudeSessions.find(s => s.sessionId === selectedClaudeSession);
+    if (!claudeSession) return;
+
+    setIsCreating(true);
+    try {
+      const claudeAgent = agents.find(a => a.id === "claude");
+      if (!claudeAgent) return;
+
+      const nodeId = `node-${Date.now()}-0`;
+      const viewport = reactFlowInstance.getViewport();
+      const viewportBounds = document.querySelector('.react-flow')?.getBoundingClientRect();
+      const viewportWidth = viewportBounds?.width || window.innerWidth;
+      const viewportHeight = viewportBounds?.height || window.innerHeight;
+      const centerX = (-viewport.x + viewportWidth / 2) / viewport.zoom;
+      const centerY = (-viewport.y + viewportHeight / 2) / viewport.zoom;
+      const [pos] = findFreePosition(centerX, centerY, nodes, 1);
+
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: claudeAgent.id,
+          agentName: claudeAgent.name,
+          command: claudeAgent.command,
+          cwd: claudeSession.cwd,
+          nodeId,
+          claudeSessionId: claudeSession.sessionId,
+        }),
+      });
+
+      const { sessionId, gitBranch, cwd: newCwd } = await res.json();
+
+      addNode({
+        id: nodeId,
+        type: "agent",
+        position: pos,
+        data: {
+          label: claudeAgent.name,
+          agentId: claudeAgent.id,
+          color: claudeAgent.color,
+          icon: claudeAgent.icon,
+          sessionId,
+        },
+      });
+
+      addSession(nodeId, {
+        id: nodeId,
+        sessionId,
+        agentId: claudeAgent.id,
+        agentName: claudeAgent.name,
+        command: claudeAgent.command,
+        color: claudeAgent.color,
+        createdAt: new Date().toISOString(),
+        cwd: newCwd || claudeSession.cwd,
+        gitBranch: gitBranch || undefined,
+        status: "idle",
+      });
+
+      handleClose();
+    } catch (error) {
+      console.error("Failed to import session:", error);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -430,9 +530,28 @@ export function NewSessionModal({
               <div className="rounded-xl bg-surface border border-border shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
                 {/* Header */}
                 <div className="px-5 py-4 border-b border-border flex items-center justify-between flex-shrink-0">
-                  <h2 className="text-base font-semibold text-white">
-                    {isReplacing ? "New Session" : "New Agent"}
-                  </h2>
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-base font-semibold text-white">
+                      {isReplacing ? "New Session" : "New Agent"}
+                    </h2>
+                    {!isReplacing && (
+                      <div className="flex gap-1 bg-canvas rounded-md p-0.5">
+                        <button
+                          onClick={() => setActiveTab("new")}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-colors ${activeTab === "new" ? "bg-surface text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        >
+                          New
+                        </button>
+                        <button
+                          onClick={() => { setActiveTab("import"); fetchClaudeSessions(); }}
+                          className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1 ${activeTab === "import" ? "bg-surface text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        >
+                          <Download className="w-3 h-3" />
+                          Import
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={handleClose}
                     className="w-7 h-7 rounded flex items-center justify-center text-zinc-500 hover:text-white hover:bg-surface-active transition-colors"
@@ -441,7 +560,67 @@ export function NewSessionModal({
                   </button>
                 </div>
 
-                {/* Content */}
+                {/* Import tab content */}
+                {activeTab === "import" && (
+                  <div className="flex-1 overflow-y-auto p-5">
+                    {importLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+                      </div>
+                    ) : importError ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-2">
+                        <AlertCircle className="w-5 h-5 text-red-500" />
+                        <p className="text-xs text-red-400">{importError}</p>
+                      </div>
+                    ) : claudeSessions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-2 text-zinc-500">
+                        <Download className="w-5 h-5" />
+                        <p className="text-xs">No Claude sessions found in ~/.claude/sessions/</p>
+                      </div>
+                    ) : claudeSessions.every(s => s.alreadyImported) ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-3 text-zinc-500">
+                        <Download className="w-5 h-5" />
+                        <p className="text-xs text-center">All existing Claude sessions are already tracked in OpenUI.</p>
+                        <p className="text-[11px] text-center text-zinc-600">Run Claude Code in another directory to create new importable sessions.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-zinc-500 mb-3">Select a session to resume it in OpenUI</p>
+                        {claudeSessions.map(s => (
+                          <button
+                            key={s.sessionId}
+                            onClick={() => !s.alreadyImported && setSelectedClaudeSession(s.sessionId)}
+                            disabled={s.alreadyImported}
+                            className={`w-full text-left px-3 py-2.5 rounded-md border transition-colors ${
+                              s.alreadyImported
+                                ? "border-border bg-canvas opacity-50 cursor-not-allowed"
+                                : selectedClaudeSession === s.sessionId
+                                ? "border-zinc-500 bg-surface"
+                                : "border-border bg-canvas hover:border-zinc-600 hover:bg-surface"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-xs font-mono text-zinc-400 truncate flex-1">{s.cwd}</span>
+                              {s.alreadyImported && (
+                                <span className="text-[10px] text-zinc-500 flex-shrink-0">imported</span>
+                              )}
+                            </div>
+                            {s.firstPrompt && (
+                              <p className="text-xs text-white mt-1 line-clamp-2 leading-relaxed">{s.firstPrompt}</p>
+                            )}
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] text-zinc-600 font-mono">{s.sessionId.slice(0, 8)}…</span>
+                              <span className="text-[10px] text-zinc-600">{new Date(s.startedAt).toLocaleString()}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* New agent content */}
+                {activeTab !== "import" && (
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
                   {/* Name & Count (only for new agents) */}
                   {!isReplacing && (
@@ -680,6 +859,7 @@ export function NewSessionModal({
                     )}
                   </div>
                 </div>
+                )} {/* end activeTab !== "import" */}
 
                 {/* Footer */}
                 <div className="px-5 py-3 bg-canvas border-t border-border flex justify-end gap-2 flex-shrink-0">
@@ -689,6 +869,15 @@ export function NewSessionModal({
                   >
                     Cancel
                   </button>
+                  {activeTab === "import" ? (
+                    <button
+                      onClick={handleImport}
+                      disabled={!selectedClaudeSession || isCreating}
+                      className="px-4 py-1.5 rounded-md text-sm font-medium text-canvas bg-white hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isCreating ? "Importing..." : "Import & Resume"}
+                    </button>
+                  ) : (
                   <button
                     onClick={handleCreate}
                     disabled={!selectedAgent || isCreating || (!selectedAgent?.command && !commandArgs)}
@@ -702,6 +891,7 @@ export function NewSessionModal({
                       ? `Create ${count} Agents`
                       : "Create"}
                   </button>
+                  )}
                 </div>
               </div>
             </div>
