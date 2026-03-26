@@ -109,17 +109,7 @@ function loadListSections(): ListSection[] {
   try {
     const saved = localStorage.getItem("openui-list-sections");
     if (saved) {
-      const sections: ListSection[] = JSON.parse(saved);
-      // Merge in any new default sections that don't exist yet
-      const existingIds = new Set(sections.map((s) => s.id));
-      for (const def of DEFAULT_LIST_SECTIONS) {
-        if (!existingIds.has(def.id)) {
-          // Insert at the same position as in defaults
-          const defIndex = DEFAULT_LIST_SECTIONS.indexOf(def);
-          sections.splice(defIndex, 0, def);
-        }
-      }
-      return sections;
+      return JSON.parse(saved);
     }
   } catch {}
   return DEFAULT_LIST_SECTIONS;

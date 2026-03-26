@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, Plus, Trash2, Edit3 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2, Edit3, GripVertical } from "lucide-react";
 import { useStore, type ListSection } from "../../stores/useStore";
 import { TaskItem } from "./TaskItem";
 
@@ -9,7 +9,7 @@ interface TaskListProps {
 }
 
 export function TaskList({ selectedNodeId, onSelect }: TaskListProps) {
-  const { sessions, listSections, addListSection, updateListSection, removeListSection, updateSession } = useStore();
+  const { sessions, listSections, addListSection, updateListSection, removeListSection, updateSession, setListSections } = useStore();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newColor, setNewColor] = useState("#3B82F6");
@@ -18,6 +18,8 @@ export function TaskList({ selectedNodeId, onSelect }: TaskListProps) {
   const [editLabel, setEditLabel] = useState("");
   const [sectionContextMenu, setSectionContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [dragOverSection, setDragOverSection] = useState<string | null>(null);
+  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
+  const [dragOverSectionReorder, setDragOverSectionReorder] = useState<string | null>(null);
 
   const allSessions = Array.from(sessions.entries());
 
@@ -134,25 +136,115 @@ export function TaskList({ selectedNodeId, onSelect }: TaskListProps) {
     [sessions, allSessions, updateSession]
   );
 
+  // Section reordering
+  const handleSectionDragStart = useCallback((e: React.DragEvent, sectionId: string) => {
+    e.stopPropagation();
+    e.dataTransfer.setData("section", sectionId);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggingSectionId(sectionId);
+  }, []);
+
+  const handleSectionDragOver = useCallback((e: React.DragEvent, targetSectionId: string) => {
+    const draggedId = e.dataTransfer.types.includes("section");
+    if (!draggedId) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverSectionReorder(targetSectionId);
+  }, []);
+
+  const handleSectionDragLeave = useCallback((e: React.DragEvent) => {
+    e.stopPropagation();
+    setDragOverSectionReorder(null);
+  }, []);
+
+  const handleSectionDrop = useCallback(
+    (e: React.DragEvent, targetSectionId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const draggedId = e.dataTransfer.getData("section");
+      if (!draggedId || draggedId === targetSectionId) {
+        setDragOverSectionReorder(null);
+        setDraggingSectionId(null);
+        return;
+      }
+
+      const draggedSection = listSections.find(s => s.id === draggedId);
+      const targetSection = listSections.find(s => s.id === targetSectionId);
+
+      // Only allow reordering within the same group
+      if (draggedSection?.group !== targetSection?.group) {
+        setDragOverSectionReorder(null);
+        setDraggingSectionId(null);
+        return;
+      }
+
+      const newSections = [...listSections];
+      const draggedIndex = newSections.findIndex(s => s.id === draggedId);
+      const targetIndex = newSections.findIndex(s => s.id === targetSectionId);
+
+      if (draggedIndex === -1 || targetIndex === -1) {
+        setDragOverSectionReorder(null);
+        setDraggingSectionId(null);
+        return;
+      }
+
+      // Remove dragged section and insert at target position
+      const [removed] = newSections.splice(draggedIndex, 1);
+      newSections.splice(targetIndex, 0, removed);
+
+      setListSections(newSections);
+      setDragOverSectionReorder(null);
+      setDraggingSectionId(null);
+    },
+    [listSections, setListSections]
+  );
+
+  const handleSectionDragEnd = useCallback(() => {
+    setDraggingSectionId(null);
+    setDragOverSectionReorder(null);
+  }, []);
+
   const sectionColors = ["#22C55E", "#3B82F6", "#8B5CF6", "#F97316", "#EC4899", "#EF4444", "#FBBF24", "#14B8A6"];
 
   const renderSection = (section: ListSection) => {
     const items = sessionsForSection(section.id);
     const isOver = dragOverSection === section.id;
+    const isReorderTarget = dragOverSectionReorder === section.id;
+    const isDragging = draggingSectionId === section.id;
 
     return (
       <div key={section.id} className="mb-2">
         {/* Section header */}
         <div
+          draggable
           className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer select-none transition-colors ${
-            isOver ? "bg-white/10" : "hover:bg-white/5"
+            isOver ? "bg-white/10" : isReorderTarget ? "bg-blue-500/20 border-2 border-blue-500" : isDragging ? "opacity-50" : "hover:bg-white/5"
           }`}
           onClick={() => handleToggleCollapse(section.id)}
           onContextMenu={(e) => handleSectionContextMenu(e, section.id)}
-          onDragOver={(e) => handleDragOver(e, section.id)}
-          onDragLeave={handleDragLeave}
-          onDrop={(e) => handleDrop(e, section.id)}
+          onDragStart={(e) => handleSectionDragStart(e, section.id)}
+          onDragOver={(e) => {
+            handleDragOver(e, section.id);
+            handleSectionDragOver(e, section.id);
+          }}
+          onDragLeave={(e) => {
+            handleDragLeave();
+            handleSectionDragLeave(e);
+          }}
+          onDrop={(e) => {
+            const isSectionDrag = e.dataTransfer.types.includes("section");
+            if (isSectionDrag) {
+              handleSectionDrop(e, section.id);
+            } else {
+              handleDrop(e, section.id);
+            }
+          }}
+          onDragEnd={handleSectionDragEnd}
         >
+          <GripVertical className="w-3 h-3 text-zinc-600 hover:text-zinc-400 transition-colors cursor-grab active:cursor-grabbing" />
           {section.collapsed ? (
             <ChevronRight className="w-3 h-3 text-zinc-500" />
           ) : (
