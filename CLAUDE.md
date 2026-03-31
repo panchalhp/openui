@@ -48,7 +48,7 @@ The client is a React application with ReactFlow for canvas visualization and xt
 | Component | File | Purpose |
 |-----------|------|---------|
 | **App** | `client/src/App.tsx` | Main application with ReactFlow canvas and ListView toggle. Handles session creation, deletion, and layout management. |
-| **AgentNode** | `client/src/components/AgentNode/` | Visual agent cards displaying session status, git branch, hostname, and last status message. Shows terminal/investigation modals. |
+| **AgentNode** | `client/src/components/AgentNode/` | Visual agent cards displaying session status, git branch, hostname, and last status message. Shows terminal modal. |
 | **CategoryNode** | `client/src/components/CategoryNode.tsx` | Group containers for organizing agents on the canvas. Supports drag-and-drop organization. |
 | **Terminal** | `client/src/components/Terminal.tsx` | WebSocket-connected xterm.js terminal with buffer replay. Handles resize and clipboard operations. |
 | **ShellTerminal** | `client/src/components/ShellTerminal.tsx` | Standalone shell terminal component for executing commands in any directory. |
@@ -57,7 +57,6 @@ The client is a React application with ReactFlow for canvas visualization and xt
 | **NewSessionModal** | `client/src/components/NewSessionModal.tsx` | Modal for creating new agents with worktree/SSH/directory options. Integrates with worktree configs. |
 | **SettingsModal** | `client/src/components/SettingsModal.tsx` | App settings including skipPermissions toggle and worktree configuration. |
 | **WorktreeModal** | `client/src/components/WorktreeModal.tsx` | Quick worktree creation with GitHub issue/PR fetching and auto-branch naming. |
-| **InvestigationModal** | `client/src/components/InvestigationModal.tsx` | Investigation history viewer for Claude sessions. |
 | **ListView** | `client/src/components/ListView/` | Alternative list-based view of sessions with collapsible sections and filtering. |
 
 ### State Management
@@ -372,11 +371,6 @@ createWorktree(config, branchName, issueNumber?)
 1. Create category nodes on canvas
 2. Drag agent nodes into categories
 3. State auto-saves positions
-
-### Viewing Investigation History
-1. Click agent node → "Investigation" button
-2. View Claude session investigation history
-3. Requires Claude session ID to be tracked
 
 ### Using List View
 1. Toggle "List" in header

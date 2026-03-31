@@ -1373,8 +1373,6 @@ export function createSession(params: {
     remote,
     initialPrompt,
     categoryId,
-    isInvestigation,
-    investigationUrl,
     claudeSessionId,
   };
 
