@@ -35,11 +35,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   // Plugin directories state (just paths)
   const [pluginDirectories, setPluginDirectories] = useState<string[]>([]);
-  const [investigationPluginDirectories, setInvestigationPluginDirectories] = useState<string[]>([]);
   const [showAddPlugin, setShowAddPlugin] = useState(false);
-  const [showAddInvestigationPlugin, setShowAddInvestigationPlugin] = useState(false);
   const [newPluginPath, setNewPluginPath] = useState("");
-  const [newInvestigationPluginPath, setNewInvestigationPluginPath] = useState("");
 
   // Load existing config
   useEffect(() => {
@@ -49,7 +46,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         .then((config) => {
           setWorktreeRepos(config.worktreeRepos || []);
           setPluginDirectories(config.pluginDirectories || []);
-          setInvestigationPluginDirectories(config.investigationPluginDirectories || []);
         })
         .catch(console.error);
       fetch("/api/settings")
@@ -61,11 +57,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     } else {
       setShowAddRepo(false);
       setShowAddPlugin(false);
-      setShowAddInvestigationPlugin(false);
       setShowBrowser(false);
       resetNewRepoForm();
       setNewPluginPath("");
-      setNewInvestigationPluginPath("");
     }
   }, [open]);
 
@@ -158,8 +152,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pluginDirectories: updatedPlugins,
-          investigationPluginDirectories
+          pluginDirectories: updatedPlugins
         }),
       });
     } catch (e) {
@@ -179,53 +172,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pluginDirectories: updatedPlugins,
-          investigationPluginDirectories
+          pluginDirectories: updatedPlugins
         }),
       });
     } catch (e) {
       console.error("Failed to save plugin directories:", e);
-    }
-  };
-
-  const handleAddInvestigationPlugin = async () => {
-    if (!newInvestigationPluginPath.trim()) return;
-
-    const updatedPlugins = [...investigationPluginDirectories, newInvestigationPluginPath.trim()];
-    setInvestigationPluginDirectories(updatedPlugins);
-
-    try {
-      await fetch("/api/plugin-directories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pluginDirectories,
-          investigationPluginDirectories: updatedPlugins
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to save investigation plugin directories:", e);
-    }
-
-    setShowAddInvestigationPlugin(false);
-    setNewInvestigationPluginPath("");
-  };
-
-  const handleDeleteInvestigationPlugin = async (index: number) => {
-    const updatedPlugins = investigationPluginDirectories.filter((_, i) => i !== index);
-    setInvestigationPluginDirectories(updatedPlugins);
-
-    try {
-      await fetch("/api/plugin-directories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pluginDirectories,
-          investigationPluginDirectories: updatedPlugins
-        }),
-      });
-    } catch (e) {
-      console.error("Failed to save investigation plugin directories:", e);
     }
   };
 
@@ -246,7 +197,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             exit={{ opacity: 0, scale: 0.95 }}
             className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
           >
-            <div className="pointer-events-auto w-full max-w-md mx-4">
+            <div className="pointer-events-auto w-full max-w-2xl mx-4">
             <div className="bg-surface rounded-xl border border-border shadow-2xl overflow-hidden">
               {/* Header */}
               <div className="px-5 py-4 border-b border-border flex items-center justify-between">
@@ -544,10 +495,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                     Configure plugins to include when launching Isaac sessions
                   </p>
 
-                  {/* All Sessions subsection */}
-                  <div className="mb-4">
+                  {/* Plugin directories list */}
+                  <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-medium text-zinc-400">All Sessions</h4>
                       {!showAddPlugin && (
                         <button
                           onClick={() => setShowAddPlugin(true)}
@@ -617,87 +567,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                             onClick={handleAddPlugin}
                             disabled={!newPluginPath.trim()}
                             className="px-3 py-1.5 rounded-md text-xs font-medium bg-purple-600 text-white hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            Add Directory
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Investigation Only subsection */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-medium text-zinc-400">Investigation Only</h4>
-                      {!showAddInvestigationPlugin && (
-                        <button
-                          onClick={() => setShowAddInvestigationPlugin(true)}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-white hover:bg-canvas transition-colors"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Add
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Existing investigation plugins list */}
-                    {investigationPluginDirectories.length > 0 ? (
-                      <div className="space-y-2 mb-2">
-                        {investigationPluginDirectories.map((pluginPath, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center gap-2 px-3 py-2 rounded-md bg-canvas border border-border group"
-                          >
-                            <Puzzle className="w-4 h-4 text-cyan-400" />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm text-white font-mono truncate">{pluginPath}</div>
-                            </div>
-                            <button
-                              onClick={() => handleDeleteInvestigationPlugin(index)}
-                              className="p-1 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : !showAddInvestigationPlugin ? (
-                      <div className="text-center py-3 text-xs text-zinc-600 bg-canvas/50 rounded-md border border-border/50">
-                        No investigation plugins configured
-                      </div>
-                    ) : null}
-
-                    {/* Add new investigation plugin form */}
-                    {showAddInvestigationPlugin && (
-                      <div className="space-y-3 p-3 rounded-md bg-canvas border border-border">
-                        <div>
-                          <label className="text-xs text-zinc-500 block mb-1.5">Plugin Directory Path</label>
-                          <input
-                            type="text"
-                            value={newInvestigationPluginPath}
-                            onChange={(e) => setNewInvestigationPluginPath(e.target.value)}
-                            placeholder="~/.claude/plugins/oncall-plugin"
-                            className="w-full px-3 py-2 rounded-md bg-surface border border-border text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors font-mono"
-                          />
-                          <p className="text-[10px] text-zinc-600 mt-1">
-                            Only applies to investigation sessions
-                          </p>
-                        </div>
-
-                        <div className="flex justify-end gap-2 pt-1">
-                          <button
-                            onClick={() => {
-                              setShowAddInvestigationPlugin(false);
-                              setNewInvestigationPluginPath("");
-                            }}
-                            className="px-3 py-1.5 rounded-md text-xs text-zinc-400 hover:text-white hover:bg-surface transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={handleAddInvestigationPlugin}
-                            disabled={!newInvestigationPluginPath.trim()}
-                            className="px-3 py-1.5 rounded-md text-xs font-medium bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
                             Add Directory
                           </button>

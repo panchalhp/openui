@@ -38,7 +38,7 @@ export function Terminal({ sessionId, color, nodeId }: TerminalProps) {
       fontSize: 13,
       fontFamily: '"Monaco", monospace',
       fontWeight: "400",
-      lineHeight: 1.4,
+      lineHeight: 1.0,
       letterSpacing: 0,
       theme: {
         background: "#0d0d0d",

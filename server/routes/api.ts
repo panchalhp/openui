@@ -302,8 +302,6 @@ apiRoutes.post("/sessions", async (c) => {
     remote,
     initialPrompt,
     categoryId,
-    isInvestigation,
-    investigationUrl,
     claudeSessionId,
   } = body;
 
@@ -334,8 +332,6 @@ apiRoutes.post("/sessions", async (c) => {
     remote,
     initialPrompt,
     categoryId,
-    isInvestigation,
-    investigationUrl,
     claudeSessionId,
   });
 
@@ -580,17 +576,13 @@ apiRoutes.post("/worktree/config", async (c) => {
 // Save plugin directories config
 apiRoutes.post("/plugin-directories", async (c) => {
   const body = await c.req.json();
-  const { pluginDirectories, investigationPluginDirectories } = body;
+  const { pluginDirectories } = body;
 
   if (!Array.isArray(pluginDirectories)) {
     return c.json({ error: "pluginDirectories must be an array" }, 400);
   }
 
-  if (investigationPluginDirectories !== undefined && !Array.isArray(investigationPluginDirectories)) {
-    return c.json({ error: "investigationPluginDirectories must be an array" }, 400);
-  }
-
-  savePluginDirectories(pluginDirectories, investigationPluginDirectories);
+  savePluginDirectories(pluginDirectories);
   return c.json({ success: true });
 });
 

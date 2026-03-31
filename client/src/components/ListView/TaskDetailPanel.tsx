@@ -90,17 +90,6 @@ export function TaskDetailPanel({ nodeId, onClose }: TaskDetailPanelProps) {
             <h2 className="text-sm font-medium text-white truncate">
               {session.customName || session.agentName}
             </h2>
-            {session.investigationUrl && (
-              <a
-                href={session.investigationUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline truncate block"
-                title={session.investigationUrl}
-              >
-                {session.investigationUrl}
-              </a>
-            )}
           </div>
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusInfo.color }} />

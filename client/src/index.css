@@ -104,7 +104,7 @@ html, body {
 
 /* Terminal styling */
 .xterm {
-  padding: 16px;
+  /* Padding is handled by container div to avoid cursor misalignment */
 }
 
 .xterm-viewport::-webkit-scrollbar {

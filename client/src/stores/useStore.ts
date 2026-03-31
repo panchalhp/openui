@@ -37,7 +37,6 @@ export interface AgentSession {
   categoryId?: string;
   sortOrder?: number;
   dueDate?: string;
-  investigationUrl?: string;
 }
 
 export interface ListSection {
