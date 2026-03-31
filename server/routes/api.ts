@@ -456,8 +456,13 @@ apiRoutes.post("/status-update", async (c) => {
       }
       session.currentTool = toolName;
     } else if (status === "post_tool") {
-      // PostToolUse or PostToolUseFailure — tool done, Claude is thinking
-      effectiveStatus = "running";
+      // PostToolUse — for AskUserQuestion/ExitPlanMode, stay in waiting_input
+      // because we're waiting for user response
+      if (toolName === "AskUserQuestion" || toolName === "ExitPlanMode") {
+        effectiveStatus = "waiting_input";
+      } else {
+        effectiveStatus = "running";
+      }
       session.currentTool = undefined;
     } else {
       // For idle/waiting_input/disconnected, clear tool tracking

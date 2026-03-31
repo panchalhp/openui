@@ -982,7 +982,7 @@ async function createWorktreeAndStartAgent(params: {
   }
 
   session.pty = ptyProcess;
-  session.status = "waiting_input";
+  session.status = "running";
   session.creationProgress = undefined;
 
   setupPtyHandlers(session, sessionId, ptyProcess);
