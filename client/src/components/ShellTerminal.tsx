@@ -112,6 +112,18 @@ export function ShellTerminal({ sessionId, cwd, color, remote }: ShellTerminalPr
           const msg = JSON.parse(event.data);
           if (msg.type === "output") {
             term.write(msg.data);
+
+            // Prevent scrolling to absolute bottom - leave space for visibility
+            setTimeout(() => {
+              const viewport = terminalRef.current?.querySelector('.xterm-viewport') as HTMLElement;
+              if (viewport) {
+                const maxScroll = viewport.scrollHeight - viewport.clientHeight;
+                const targetScroll = maxScroll - 48; // Leave 48px space at bottom
+                if (viewport.scrollTop > targetScroll) {
+                  viewport.scrollTop = targetScroll;
+                }
+              }
+            }, 0);
           }
         } catch (e) {
           // If not JSON, write raw data
@@ -168,7 +180,7 @@ export function ShellTerminal({ sessionId, cwd, color, remote }: ShellTerminalPr
       ref={terminalRef}
       className="w-full h-full"
       style={{
-        padding: "12px",
+        padding: "12px 12px 32px 12px",
         backgroundColor: "#0d0d0d",
         minHeight: "200px"
       }}

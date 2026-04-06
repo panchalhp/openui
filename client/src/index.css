@@ -107,6 +107,14 @@ html, body {
   /* Padding is handled by container div to avoid cursor misalignment */
 }
 
+.xterm-screen {
+  padding-bottom: 48px !important;
+}
+
+.xterm-rows {
+  padding-bottom: 48px !important;
+}
+
 .xterm-viewport::-webkit-scrollbar {
   width: 6px;
 }
