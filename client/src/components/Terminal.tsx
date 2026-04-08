@@ -113,18 +113,6 @@ export function Terminal({ sessionId, color, nodeId }: TerminalProps) {
               term.write("\x1b[2J\x1b[H\x1b[0m");
             }
             term.write(msg.data);
-
-            // Prevent scrolling to absolute bottom - leave space for visibility
-            setTimeout(() => {
-              const viewport = terminalRef.current?.querySelector('.xterm-viewport') as HTMLElement;
-              if (viewport) {
-                const maxScroll = viewport.scrollHeight - viewport.clientHeight;
-                const targetScroll = maxScroll - 48; // Leave 48px space at bottom
-                if (viewport.scrollTop > targetScroll) {
-                  viewport.scrollTop = targetScroll;
-                }
-              }
-            }, 0);
           } else if (msg.type === "status") {
             // Handle status updates from plugin hooks
             updateSession(nodeId, {
